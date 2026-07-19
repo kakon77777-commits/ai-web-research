@@ -20,6 +20,8 @@ class CrawlerConfig:
     retry_count: int
     save_raw: bool
     save_screenshot_on_error: bool
+    min_request_interval_seconds: float
+    jitter_seconds: float
 
 
 @dataclass
@@ -61,6 +63,8 @@ def load_config(path: Path) -> AppConfig:
             retry_count=int(c.get("retry_count", 3)),
             save_raw=bool(c.get("save_raw", True)),
             save_screenshot_on_error=bool(c.get("save_screenshot_on_error", False)),
+            min_request_interval_seconds=float(c.get("min_request_interval_seconds", 0.0)),
+            jitter_seconds=float(c.get("jitter_seconds", 0.5)),
         ),
         security=SecurityConfig(
             block_private_networks=bool(s.get("block_private_networks", True)),

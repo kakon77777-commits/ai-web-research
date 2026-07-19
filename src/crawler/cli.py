@@ -22,6 +22,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--max-pages", type=int, default=None)
     parser.add_argument("--max-depth", type=int, default=None)
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument(
+        "--fresh",
+        action="store_true",
+        help="Discard any persisted frontier state for this domain and start over",
+    )
     return parser
 
 
@@ -39,7 +44,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.max_depth is not None:
         config.crawler.max_depth = args.max_depth
 
-    stats = asyncio.run(crawl_site(args.url, config))
+    stats = asyncio.run(crawl_site(args.url, config, fresh=args.fresh))
 
     print(
         f"fetched={stats.fetched} unchanged={stats.unchanged} "

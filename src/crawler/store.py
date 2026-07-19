@@ -37,6 +37,17 @@ CREATE TABLE IF NOT EXISTS pages (
 );
 """
 
+_FRONTIER_SCHEMA = """
+CREATE TABLE IF NOT EXISTS frontier (
+    url TEXT PRIMARY KEY,
+    domain TEXT NOT NULL,
+    depth INTEGER NOT NULL,
+    status TEXT NOT NULL,
+    discovered_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+"""
+
 
 def sha256_hex(data: str | bytes) -> str:
     if isinstance(data, str):
@@ -72,10 +83,41 @@ class PageStore:
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(db_path)
         self._conn.execute(_SCHEMA)
+        self._conn.execute(_FRONTIER_SCHEMA)
         self._conn.commit()
 
     def close(self) -> None:
         self._conn.close()
+
+    # -- persistent/resumable frontier -----------------------------------
+
+    def frontier_mark_pending(self, url: str, domain: str, depth: int, now: str) -> None:
+        """No-op if the URL is already tracked (any status) — a URL only
+        ever needs to be queued once across the lifetime of a domain."""
+        self._conn.execute(
+            "INSERT OR IGNORE INTO frontier (url, domain, depth, status, discovered_at, updated_at) "
+            "VALUES (?, ?, ?, 'pending', ?, ?)",
+            (url, domain, depth, now, now),
+        )
+        self._conn.commit()
+
+    def frontier_mark_done(self, url: str, now: str, status: str = "done") -> None:
+        self._conn.execute(
+            "UPDATE frontier SET status = ?, updated_at = ? WHERE url = ?",
+            (status, now, url),
+        )
+        self._conn.commit()
+
+    def frontier_urls_by_status(self, domain: str, status: str) -> list[tuple[str, int]]:
+        cur = self._conn.execute(
+            "SELECT url, depth FROM frontier WHERE domain = ? AND status = ? ORDER BY discovered_at ASC",
+            (domain, status),
+        )
+        return cur.fetchall()
+
+    def frontier_reset_domain(self, domain: str) -> None:
+        self._conn.execute("DELETE FROM frontier WHERE domain = ?", (domain,))
+        self._conn.commit()
 
     def previous_hash(self, url: str) -> str | None:
         cur = self._conn.execute(

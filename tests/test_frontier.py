@@ -47,3 +47,36 @@ def test_has_next_stops_at_page_cap():
     assert frontier.has_next() is True
     frontier.pop()
     assert frontier.has_next() is False
+
+
+def test_preseed_seen_skips_requeueing_already_done_seed():
+    frontier = UrlFrontier(
+        "https://example.com/",
+        max_depth=3,
+        max_pages=50,
+        preseed_seen={"https://example.com/"},
+    )
+    assert frontier.has_next() is False
+    assert len(frontier) == 0
+
+
+def test_preseed_seen_does_not_block_other_urls():
+    frontier = UrlFrontier(
+        "https://example.com/",
+        max_depth=3,
+        max_pages=50,
+        preseed_seen={"https://example.com/already-done"},
+    )
+    added = frontier.add("https://example.com/already-done", depth=1)
+    assert added is False
+    added_new = frontier.add("https://example.com/new-page", depth=1)
+    assert added_new is True
+
+
+def test_add_many_returns_accepted_urls_not_just_count():
+    frontier = UrlFrontier("https://example.com/", max_depth=3, max_pages=50)
+    frontier.pop()
+    accepted = frontier.add_many(
+        ["https://example.com/a", "https://other.com/b", "https://example.com/a"], depth=1
+    )
+    assert accepted == ["https://example.com/a"]

@@ -10,6 +10,8 @@ crawler:
   retry_backoff: exponential
   save_raw: true
   save_screenshot_on_error: false
+  min_request_interval_seconds: 0.0
+  jitter_seconds: 0.5
 
 security:
   block_private_networks: true
