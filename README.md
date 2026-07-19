@@ -45,12 +45,19 @@ are later phases per the doc's own roadmap.
 
 ## LLM provider (optional, for later semantic-extraction work)
 
-`src/crawler/llm.py` is a minimal provider abstraction — Anthropic direct, or
-any OpenAI-compatible chat-completions endpoint (OpenAI, Grok, Gemini's
-OpenAI-compat endpoint, etc.) selected by `base_url` — mirroring the
-`callAiProvider()` pattern in
-[eveglyph-editor](../eveglyph-editor/src/ai.js). No provider SDKs, just
-`httpx`, so both branches stay symmetric and easy to audit.
+`src/crawler/llm.py` is a minimal provider abstraction across three paths:
+
+- **Anthropic** direct API
+- any **OpenAI-compatible** chat-completions endpoint (OpenAI itself, Grok,
+  Gemini's OpenAI-compat endpoint, etc.) selected by `base_url` — one code
+  path covers all of them since they share the same wire format
+- **Google Vertex AI** (Gemini), via the official `google-genai` SDK (an
+  optional dependency, `pip install -e ".[vertex]"`) since GCP's
+  service-account OAuth2 flow isn't worth reimplementing by hand
+
+The first two mirror the `callAiProvider()` pattern in
+[eveglyph-editor](../eveglyph-editor/src/ai.js) — raw `httpx`, no SDK, both
+branches symmetric and easy to audit.
 
 Configure via a local `.env` (gitignored, never commit it):
 
@@ -62,10 +69,27 @@ OPENAI_API_KEY=sk-...
 OPENAI_MODEL=gpt-4o-mini                     # optional, this is the default
 OPENAI_BASE_URL=https://api.openai.com/v1    # optional; swap for Grok/Gemini/etc.
 
+VERTEX_PROJECT_ID=your-gcp-project-id
+VERTEX_CREDENTIALS_PATH=/path/to/service-account-key.json
+VERTEX_LOCATION=us-central1                  # optional, this is the default
+VERTEX_MODEL=gemini-2.5-flash-lite           # optional, this is the default — cheap tier, no deep reasoning needed here
+
 LLM_PROVIDER=anthropic  # optional; picks which configured provider is default
 ```
 
-Nothing in the crawl pipeline calls this yet — it exists so extraction/
+If you're pointing this at a real Vertex AI project, list what your project
+can actually call before hardcoding a model name — Model Garden entries can
+be listed but not necessarily invokable in every region:
+
+```python
+from google import genai
+client = genai.Client(vertexai=True, project="...", location="us-central1")
+for m in client.models.list():
+    if "gemini" in m.name.lower():
+        print(m.name)
+```
+
+Nothing in the crawl pipeline calls `llm.py` yet — it exists so extraction/
 browser-agent stages can be wired in against a cheap model without picking a
 single vendor up front.
 
