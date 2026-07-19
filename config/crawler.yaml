@@ -1,0 +1,23 @@
+crawler:
+  user_agent: "EVEMISS-ResearchBot/0.1 (+https://evemisslab.com)"
+  obey_robots_txt: true
+  max_depth: 3
+  max_pages_per_domain: 50
+  max_concurrency_global: 4
+  max_concurrency_per_domain: 2
+  request_timeout_seconds: 20
+  retry_count: 3
+  retry_backoff: exponential
+  save_raw: true
+  save_screenshot_on_error: false
+
+security:
+  block_private_networks: true
+  allow_file_scheme: false
+  allow_localhost: false
+  prompt_injection_is_untrusted: true
+
+storage:
+  raw_dir: "storage/raw"
+  parsed_dir: "storage/parsed"
+  db_path: "storage/metadata/crawl.db"

@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+*.egg-info/
+
+storage/raw/*
+!storage/raw/.gitkeep
+storage/parsed/*
+!storage/parsed/.gitkeep
+storage/metadata/*
+!storage/metadata/.gitkeep
