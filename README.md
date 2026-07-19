@@ -39,9 +39,35 @@ deterministic — no LLM calls yet:
   configurable `min_request_interval_seconds`, with random jitter so requests
   aren't lockstep-periodic.
 
-Not in scope yet: LLM/semantic extraction, browser-agent fallback for
-JS-heavy interaction, near-duplicate detection, ranking, and the directory
-website itself — those are later phases per the doc's own roadmap.
+Not in scope yet: LLM-driven browser-agent fallback for JS-heavy interaction,
+near-duplicate detection, ranking, and the directory website itself — those
+are later phases per the doc's own roadmap.
+
+## LLM provider (optional, for later semantic-extraction work)
+
+`src/crawler/llm.py` is a minimal provider abstraction — Anthropic direct, or
+any OpenAI-compatible chat-completions endpoint (OpenAI, Grok, Gemini's
+OpenAI-compat endpoint, etc.) selected by `base_url` — mirroring the
+`callAiProvider()` pattern in
+[eveglyph-editor](../eveglyph-editor/src/ai.js). No provider SDKs, just
+`httpx`, so both branches stay symmetric and easy to audit.
+
+Configure via a local `.env` (gitignored, never commit it):
+
+```
+ANTHROPIC_API_KEY=sk-ant-...
+ANTHROPIC_MODEL=claude-haiku-4-5-20251001   # optional, this is the default
+
+OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-4o-mini                     # optional, this is the default
+OPENAI_BASE_URL=https://api.openai.com/v1    # optional; swap for Grok/Gemini/etc.
+
+LLM_PROVIDER=anthropic  # optional; picks which configured provider is default
+```
+
+Nothing in the crawl pipeline calls this yet — it exists so extraction/
+browser-agent stages can be wired in against a cheap model without picking a
+single vendor up front.
 
 ## Setup
 
