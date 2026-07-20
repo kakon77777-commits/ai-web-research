@@ -4,6 +4,7 @@ from crawler.store import (
     ExtractionRecord,
     PageRecord,
     PageStore,
+    ResearchRunRecord,
     document_id_for,
     sha256_hex,
     write_parsed,
@@ -144,4 +145,37 @@ def test_pages_without_extraction_excludes_already_extracted(tmp_path: Path):
     pending = store.pages_without_extraction("example.com", "v1")
     assert len(pending) == 1
     assert pending[0]["url"] == "https://example.com/b"
+    store.close()
+
+
+def _research_run_record() -> ResearchRunRecord:
+    return ResearchRunRecord(
+        seed="AI personal portal",
+        branches_json='{"semantic": ["a"]}',
+        compression_json='{"core_proposition": "p"}',
+        created_at="2026-07-20T00:00:00+00:00",
+    )
+
+
+def test_save_and_get_research_run_roundtrip(tmp_path: Path):
+    store = PageStore(tmp_path / "crawl.db")
+    run_id = store.save_research_run(_research_run_record())
+
+    row = store.get_research_run(run_id)
+    assert row["seed"] == "AI personal portal"
+    assert row["branches_json"] == '{"semantic": ["a"]}'
+    store.close()
+
+
+def test_get_research_run_returns_none_when_missing(tmp_path: Path):
+    store = PageStore(tmp_path / "crawl.db")
+    assert store.get_research_run(999) is None
+    store.close()
+
+
+def test_save_research_run_ids_are_sequential(tmp_path: Path):
+    store = PageStore(tmp_path / "crawl.db")
+    id1 = store.save_research_run(_research_run_record())
+    id2 = store.save_research_run(_research_run_record())
+    assert id2 > id1
     store.close()

@@ -1,6 +1,7 @@
 """CLI entry point:
 `crawler crawl <url> [--config PATH] [--max-pages N] [--max-depth N]`
 `crawler extract <url> [--config PATH] [--schema PATH]`
+`crawler research <seed> --seeds-file PATH [--config PATH]`
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from pathlib import Path
 
 from .config import load_config
 from .normalize import registered_domain
+from .research import research_topic
 from .run import crawl_site
 from .semantic_extract import extract_site
 
@@ -23,8 +25,12 @@ DEFAULT_SCHEMA_PATH = Path("config/extraction_schema.example.json")
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="crawler", description="Stage 1 AI crawler")
-    parser.add_argument("command", choices=["crawl", "extract"])
-    parser.add_argument("url", help="Seed URL to crawl, or a URL on the domain to run extraction for")
+    parser.add_argument("command", choices=["crawl", "extract", "research"])
+    parser.add_argument(
+        "url",
+        help="Seed URL to crawl; a URL on the domain to run extraction for; "
+        "or the research seed concept/question (used by 'research')",
+    )
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
     parser.add_argument("--max-pages", type=int, default=None)
     parser.add_argument("--max-depth", type=int, default=None)
@@ -39,6 +45,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=DEFAULT_SCHEMA_PATH,
         help="Path to a JSON Schema file describing fields to extract (used by 'extract')",
+    )
+    parser.add_argument(
+        "--seeds-file",
+        type=Path,
+        default=None,
+        help="JSON file mapping branch label -> list of seed URLs (required by 'research')",
     )
     return parser
 
@@ -64,7 +76,7 @@ def main(argv: list[str] | None = None) -> int:
             f"skipped_robots={stats.skipped_robots} skipped_ssrf={stats.skipped_ssrf} "
             f"failed={stats.failed}"
         )
-    else:
+    elif args.command == "extract":
         schema = json.loads(args.schema.read_text(encoding="utf-8"))
         domain = registered_domain(args.url)
         stats = asyncio.run(extract_site(domain, schema, config))
@@ -72,6 +84,14 @@ def main(argv: list[str] | None = None) -> int:
             f"extracted={stats.extracted} "
             f"skipped_missing_markdown={stats.skipped_missing_markdown} failed={stats.failed}"
         )
+    else:
+        if args.seeds_file is None:
+            print("research requires --seeds-file (JSON: {branch: [url, ...]})", file=sys.stderr)
+            return 2
+        seed_urls_by_branch = json.loads(args.seeds_file.read_text(encoding="utf-8"))
+        run = asyncio.run(research_topic(args.url, seed_urls_by_branch, config))
+        print(f"research_run_id={run.id}")
+        print(json.dumps(run.compression, ensure_ascii=False, indent=2))
     return 0
 
 

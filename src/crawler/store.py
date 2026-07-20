@@ -62,6 +62,16 @@ CREATE TABLE IF NOT EXISTS extractions (
 );
 """
 
+_RESEARCH_RUNS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS research_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    seed TEXT NOT NULL,
+    branches_json TEXT NOT NULL,
+    compression_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+"""
+
 
 def sha256_hex(data: str | bytes) -> str:
     if isinstance(data, str):
@@ -104,6 +114,14 @@ class ExtractionRecord:
     created_at: str
 
 
+@dataclass
+class ResearchRunRecord:
+    seed: str
+    branches_json: str
+    compression_json: str
+    created_at: str
+
+
 class PageStore:
     def __init__(self, db_path: Path):
         db_path.parent.mkdir(parents=True, exist_ok=True)
@@ -111,6 +129,7 @@ class PageStore:
         self._conn.execute(_SCHEMA)
         self._conn.execute(_FRONTIER_SCHEMA)
         self._conn.execute(_EXTRACTIONS_SCHEMA)
+        self._conn.execute(_RESEARCH_RUNS_SCHEMA)
         self._conn.commit()
 
     def close(self) -> None:
@@ -256,6 +275,22 @@ class PageStore:
             (extractor_version, domain),
         )
         return cur.fetchall()
+
+    # -- research runs (stage 5, DRC divergence/compression) --------------
+
+    def save_research_run(self, record: ResearchRunRecord) -> int:
+        cur = self._conn.execute(
+            "INSERT INTO research_runs (seed, branches_json, compression_json, created_at) "
+            "VALUES (?, ?, ?, ?)",
+            (record.seed, record.branches_json, record.compression_json, record.created_at),
+        )
+        self._conn.commit()
+        return cur.lastrowid
+
+    def get_research_run(self, run_id: int) -> sqlite3.Row | None:
+        self._conn.row_factory = sqlite3.Row
+        cur = self._conn.execute("SELECT * FROM research_runs WHERE id = ?", (run_id,))
+        return cur.fetchone()
 
 
 def write_raw(raw_dir: Path, domain: str, doc_id: str, html: str) -> Path:

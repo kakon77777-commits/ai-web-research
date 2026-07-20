@@ -21,11 +21,21 @@ This is a distinct second pass over already-crawled pages, not inlined into
 run.py's per-page fetch loop — extraction is LLM-rate-limited and separately
 re-runnable (new prompt/model = new EXTRACTOR_VERSION), unlike the
 deterministic fetch/parse/store loop it follows.
+
+The persisted extractor_version is EXTRACTOR_VERSION plus a hash of the
+schema actually used, not the bare constant — extract_site() decides "has
+this page already been extracted" by (document_id, extractor_version), so
+two DIFFERENT schemas run against the same page must not collide on one
+version or the second schema's pass silently no-ops against the first
+schema's leftover row (hit for real: research.py's key_claim/stance schema
+was silently skipped because pages had already been extracted once with the
+generic default schema under the same bare version string).
 """
 
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import json
 import logging
 import re
@@ -39,6 +49,16 @@ from .llm import LlmConfig, complete, default_config_from_env
 from .store import ExtractionRecord, PageStore
 
 EXTRACTOR_VERSION = "ai-web-research-stage4/0.1.0"
+
+
+def schema_extractor_version(schema: dict) -> str:
+    """Schema-qualified version used as the actual DB key — see module
+    docstring for why the bare EXTRACTOR_VERSION alone isn't safe to use
+    when more than one schema shape can be run against the same pages."""
+    schema_hash = hashlib.sha256(
+        json.dumps(schema, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    ).hexdigest()[:12]
+    return f"{EXTRACTOR_VERSION}+{schema_hash}"
 
 logger = logging.getLogger("crawler.semantic_extract")
 
@@ -208,7 +228,7 @@ async def extract_page(
 
     return ExtractionResult(
         url=url,
-        extractor_version=EXTRACTOR_VERSION,
+        extractor_version=schema_extractor_version(schema),
         provider=llm_config.provider,
         model=llm_config.model,
         fields=fields,
@@ -239,14 +259,15 @@ async def extract_site(
 ) -> ExtractionStats:
     """Second pass over already-crawled pages for `domain`: runs
     extract_page() against every stored page that doesn't yet have an
-    extraction row for the current EXTRACTOR_VERSION, persisting results."""
+    extraction row for this schema's version, persisting results."""
     if llm_config is None:
         llm_config = default_config_from_env()
 
+    version = schema_extractor_version(schema)
     stats = ExtractionStats()
     store = PageStore(config.storage.db_path)
     try:
-        rows = store.pages_without_extraction(domain, EXTRACTOR_VERSION)
+        rows = store.pages_without_extraction(domain, version)
         async with httpx.AsyncClient(timeout=60.0) as client:
             for row in rows:
                 # pages.markdown_path is unreliable (nulled out on unchanged
@@ -271,7 +292,7 @@ async def extract_site(
                 store.save_extraction(
                     ExtractionRecord(
                         document_id=row["document_id"],
-                        extractor_version=EXTRACTOR_VERSION,
+                        extractor_version=version,
                         url=row["url"],
                         provider=result.provider,
                         model=result.model,

@@ -40,8 +40,58 @@ deterministic — no LLM calls yet:
   aren't lockstep-periodic.
 
 Not in scope yet: LLM-driven browser-agent fallback for JS-heavy interaction
-(doc 階段三), near-duplicate detection, and the directory website itself —
-those are later phases per the doc's own roadmap.
+(doc 階段三) and near-duplicate detection — those are later phases per the
+doc's own roadmap.
+
+## Research agent (階段五) — built on DRC Search, not doc1's own suggestion
+
+Doc1's own Stage 5 spec just says "use GPT Researcher or Open Deep
+Research." Instead this implements the Divergence–Resonance–Compression
+loop from a separate whitepaper (`drc_search_whitepaper_v0_1.md`) — folded
+in ahead of doc1's own sequencing once that whitepaper existed, rather than
+building the simpler version first and redoing it later.
+
+`src/crawler/research.py`:
+
+- **`diverge(seed, llm_config)`** — one LLM call generating search-query
+  branches across DRC's five categories (semantic / task / source /
+  language / perspective). Real and complete on its own — no external
+  dependency beyond the LLM.
+- **`research_topic(seed, seed_urls_by_branch, config)`** — the orchestrator.
+  **Real gap, disclosed rather than papered over**: this project has no live
+  web-search API (no Exa/Tavily/Brave/Google Custom Search key configured
+  anywhere), so "multi-source retrieval" is bootstrapped from
+  caller-supplied seed URLs per branch, not autonomous open-web search.
+  Each seed is fetched via the existing `crawl_site()` at depth 0 (a
+  research seed is one specific page, not a whole site to BFS), then run
+  through Stage 4 extraction with a research-oriented schema
+  (`key_claim`/`stance`/`relevance`/`notable_quote`). Wiring a real search
+  API in later is a drop-in replacement for how the seed URLs get chosen —
+  everything downstream is unaffected.
+- **`compress(seed, findings, llm_config)`** — synthesizes findings into a
+  cognitive-map structure (`core_proposition`, labeled `clusters` with
+  `source_urls`, `next_queries`, `unresolved_conflicts`). Same
+  anti-hallucination discipline as Stage 4: every `source_url` the LLM
+  cites is checked against the findings actually given to it; unknown URLs
+  are dropped and recorded in `validation_errors` rather than trusted — DRC
+  doc's own principle, "AI 可以壓縮，但不能切斷來源."
+
+```bash
+# seeds.json: {"branch_label": ["https://...", ...], ...}
+python -m crawler research "your research question" --seeds-file seeds.json --verbose
+```
+
+Results persist to the `research_runs` table (`seed`, `branches_json`,
+`compression_json`) — the CLI prints the run id and the compression JSON.
+
+**Not built here**: MRASG (Multi-Resolution Argumentation Semantic Graph,
+the doc DRC Search pairs with) — a claim/evidence/support/objection graph
+with independently-cached multi-resolution views. Its own MVP section
+scopes it as a standalone graph-storage engine, a separably large piece,
+not a bolt-on to this crawler. "Resonance" scoring (DRC doc's multi-factor
+relevance ranking) also isn't a separate step yet — with caller-supplied
+seeds there's no large candidate pool to rank down; revisit once a real
+search API produces one.
 
 ## Semantic extraction (階段四)
 
@@ -52,7 +102,13 @@ configured LLM (Prompt-to-Extraction, doc section 11.2) and asks for
 structured values. Deliberately separate from the `crawl` command — this
 stage is LLM-rate-limited and independently re-runnable (bump
 `EXTRACTOR_VERSION` in `semantic_extract.py` to force a redo with a new
-prompt/model without losing prior results).
+prompt/model without losing prior results). The persisted version is
+actually `EXTRACTOR_VERSION` plus a hash of the schema used
+(`schema_extractor_version()`) — different schemas run against the same
+page never collide on "already extracted," which a real bug during Stage 5
+testing showed matters: a page extracted once with the generic default
+schema was silently skipped when a differently-shaped research schema ran
+against it next, because both used to share one bare version string.
 
 Every returned field carries a `source_quote` the LLM must copy verbatim
 from the page — `semantic_extract.py` independently checks that quote
