@@ -48,6 +48,20 @@ CREATE TABLE IF NOT EXISTS frontier (
 );
 """
 
+_EXTRACTIONS_SCHEMA = """
+CREATE TABLE IF NOT EXISTS extractions (
+    document_id TEXT NOT NULL,
+    extractor_version TEXT NOT NULL,
+    url TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    model TEXT NOT NULL,
+    extracted_json TEXT NOT NULL,
+    validation_errors TEXT,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (document_id, extractor_version)
+);
+"""
+
 
 def sha256_hex(data: str | bytes) -> str:
     if isinstance(data, str):
@@ -78,12 +92,25 @@ class PageRecord:
     robots_allowed: bool
 
 
+@dataclass
+class ExtractionRecord:
+    document_id: str
+    extractor_version: str
+    url: str
+    provider: str
+    model: str
+    extracted_json: str
+    validation_errors: str | None
+    created_at: str
+
+
 class PageStore:
     def __init__(self, db_path: Path):
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(db_path)
         self._conn.execute(_SCHEMA)
         self._conn.execute(_FRONTIER_SCHEMA)
+        self._conn.execute(_EXTRACTIONS_SCHEMA)
         self._conn.commit()
 
     def close(self) -> None:
@@ -175,6 +202,59 @@ class PageStore:
     def all_pages(self) -> list[sqlite3.Row]:
         self._conn.row_factory = sqlite3.Row
         cur = self._conn.execute("SELECT * FROM pages ORDER BY fetched_at DESC")
+        return cur.fetchall()
+
+    def pages_by_domain(self, domain: str) -> list[sqlite3.Row]:
+        self._conn.row_factory = sqlite3.Row
+        cur = self._conn.execute(
+            "SELECT * FROM pages WHERE domain = ? ORDER BY fetched_at ASC", (domain,)
+        )
+        return cur.fetchall()
+
+    # -- semantic extraction (stage 4) ------------------------------------
+
+    def save_extraction(self, record: ExtractionRecord) -> None:
+        self._conn.execute(
+            """
+            INSERT INTO extractions (
+                document_id, extractor_version, url, provider, model,
+                extracted_json, validation_errors, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(document_id, extractor_version) DO UPDATE SET
+                url=excluded.url,
+                provider=excluded.provider,
+                model=excluded.model,
+                extracted_json=excluded.extracted_json,
+                validation_errors=excluded.validation_errors,
+                created_at=excluded.created_at
+            """,
+            (
+                record.document_id, record.extractor_version, record.url, record.provider,
+                record.model, record.extracted_json, record.validation_errors, record.created_at,
+            ),
+        )
+        self._conn.commit()
+
+    def get_extraction(self, document_id: str, extractor_version: str) -> sqlite3.Row | None:
+        self._conn.row_factory = sqlite3.Row
+        cur = self._conn.execute(
+            "SELECT * FROM extractions WHERE document_id = ? AND extractor_version = ?",
+            (document_id, extractor_version),
+        )
+        return cur.fetchone()
+
+    def pages_without_extraction(self, domain: str, extractor_version: str) -> list[sqlite3.Row]:
+        self._conn.row_factory = sqlite3.Row
+        cur = self._conn.execute(
+            """
+            SELECT p.* FROM pages p
+            LEFT JOIN extractions e
+                ON e.document_id = p.document_id AND e.extractor_version = ?
+            WHERE p.domain = ? AND e.document_id IS NULL
+            ORDER BY p.fetched_at ASC
+            """,
+            (extractor_version, domain),
+        )
         return cur.fetchall()
 
 

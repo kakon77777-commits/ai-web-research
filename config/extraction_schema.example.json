@@ -1,0 +1,25 @@
+{
+  "type": "object",
+  "description": "Generic page summary — a starting-point schema for `crawler extract`. Copy this file and adjust `properties`/`required` for a specific extraction task; the extractor itself is schema-agnostic.",
+  "properties": {
+    "summary": {
+      "type": "string",
+      "description": "One to two sentence summary of the page's main content."
+    },
+    "primary_topic": {
+      "type": "string",
+      "description": "The single main subject/topic of the page."
+    },
+    "key_entities": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Names of key people, products, organizations, or technologies mentioned."
+    },
+    "content_type": {
+      "type": "string",
+      "enum": ["article", "documentation", "product_page", "blog_post", "reference", "other"],
+      "description": "The kind of page this is."
+    }
+  },
+  "required": ["summary", "primary_topic", "content_type"]
+}
