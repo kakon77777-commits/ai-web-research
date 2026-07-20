@@ -93,6 +93,54 @@ relevance ranking) also isn't a separate step yet — with caller-supplied
 seeds there's no large candidate pool to rank down; revisit once a real
 search API produces one.
 
+## MCP server — protocol access layer over everything above
+
+Built after Neo shared `可組合混合搜尋架構技術白皮書_CHSA_v0.2_MCP補充版.md`
+(CHSA), which frames MCP as an optional capability-exchange layer sitting
+*over* search intelligence, not the intelligence itself ("MCP = Capability
+Exchange Protocol ≠ Search Intelligence", CHSA §8). `src/crawler/
+mcp_server.py` exposes this project's existing capabilities — nothing new
+was invented to build it, it's purely a protocol face on `crawl_site()`/
+`extract_site()`/`diverge()`/`compress()`/`research_topic()`.
+
+```bash
+# run directly
+.venv/Scripts/python.exe -m crawler.mcp_server
+# or, if installed with the `mcp` extra:
+crawler-mcp
+```
+
+Stdio transport — this is a local Python tool, not a hosted service like
+the [ai-board](https://github.com/kakon77777-commits/ai-board) project's
+Cloudflare Worker, so stdio (how Claude Desktop/Claude Code launch and
+talk to local MCP tools) is the right transport, not Streamable HTTP.
+
+Six tools: `fetch_document`, `extract_evidence`, `diverge_queries`,
+`compile_research`, `research_topic_tool`, `get_research_run`. Names
+follow CHSA's own suggested abstract tool profile (§8.7) where this
+project's actual capabilities genuinely match it — `extract_evidence`'s
+output (`value`/`source_quote`/`confidence`/`quote_verified` per field) is
+close to a field-for-field match with CHSA's standard evidence-object shape
+(§9.2). **Not exposed, because not built** (not faked to look complete):
+`search_candidates` (no live search API), `resolve_versions` and
+`get_relations` (both need MRASG). Every tool carries
+`readOnlyHint`/`destructiveHint`/`idempotentHint`/`openWorldHint`
+annotations — same compliance lesson the ai-board project learned the hard
+way (a write with real side effects needs `destructiveHint`/
+`readOnlyHint=false` accurately set, not left at defaults).
+
+```bash
+# spawns the server as a real subprocess, drives it with a real MCP
+# client over stdio, calls all six tools for real (not mocked)
+.venv/Scripts/python.exe scripts/verify_mcp_server.py
+```
+
+Deliberately NOT wired into `pytest -q` — matches the precedent the
+ai-board project already set with `verify-remote-mcp.mjs`: a standalone,
+manually-run script instead of a pytest-integrated test, since spawning/
+tearing down a subprocess on every fast-suite run risks flakiness for
+marginal coverage gain over one real end-to-end check.
+
 ## Semantic extraction (階段四)
 
 `crawler extract <url> [--schema PATH]` is a second pass over pages already

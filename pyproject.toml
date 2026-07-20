@@ -17,13 +17,18 @@ dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
     "google-genai>=1.0",
+    "mcp>=1.0",
 ]
 vertex = [
     "google-genai>=1.0",
 ]
+mcp = [
+    "mcp>=1.0",
+]
 
 [project.scripts]
 crawler = "crawler.cli:main"
+crawler-mcp = "crawler.mcp_server:main"
 
 [build-system]
 requires = ["hatchling"]
