@@ -31,6 +31,29 @@ MRASG (the multi-resolution argument-graph doc DRC pairs with, and VRCA's
 own theoretical unification of both) is deliberately NOT built here — its
 own MVP section (§15) scopes it as a standalone graph-storage engine, a
 separably large piece, not a bolt-on to this crawler.
+
+2026-07-25 update, folding in two further whitepapers (GIPE v0.1 "全域欲相位
+認識論" and GIPSS v0.2 "全域欲相位語義搜尋法"/DRC+SGCD unification) — scoped
+narrowly, not the full theory:
+
+- GIPE's own scope (physical experiments, DFT, chemistry synthesis, formal
+  proof engines, lab-in-the-loop) is far beyond a web crawler and is NOT
+  attempted here. What DOES transfer directly: GIPE's epistemic-action
+  framing treats "query a model's own prior knowledge" as one valid
+  epistemic action among many (查詢/閱讀/計算/模擬/測量/實驗/...), distinct
+  from live retrieval and never to be disguised as verified evidence
+  ("推論不能偽裝成原始證據"). `basic_ai_search()` implements exactly that
+  one action — nothing more.
+- GIPSS v0.2's SGCD (a full dynamic semantic graph with typed multi-
+  dimensional coupling vectors) is the same class of large, separate
+  graph-engine effort as MRASG — also NOT built here.
+- Two ideas from GIPSS v0.2 DO fold cleanly into the existing compress()
+  step without new infrastructure: counter-evidence-seeking (反證優先 — a
+  finding that could overturn the emerging conclusion is worth more than
+  one more confirming example) and typed/multi-level support status
+  instead of a single score (缺失值不是零 — "not found," "contradicted,"
+  and "confirmed" are different situations). Both are now in
+  `compress()`'s prompt and `CompressionCluster.status`.
 """
 
 from __future__ import annotations
@@ -43,7 +66,7 @@ from dataclasses import dataclass, field, replace
 import httpx
 
 from .config import AppConfig
-from .llm import LlmConfig, complete, default_config_from_env
+from .llm import LlmConfig, complete, default_config_from_env, vertex_config_from_env
 from .normalize import registered_domain
 from .run import crawl_site
 from .semantic_extract import (
@@ -169,13 +192,102 @@ async def diverge(
     return DivergenceResult(seed=seed, branches=branches)
 
 
+# -- LLM recall: a "basic AI search" stand-in (GIPE 附錄A, one epistemic
+# action among many) -----------------------------------------------------
+
+BASIC_SEARCH_MODEL = "gemini-3.5-flash"
+
+
+@dataclass
+class RecallFinding:
+    branch: str
+    queries: list[str]
+    answer: str
+    model: str
+
+
+def _recall_system_prompt() -> str:
+    return (
+        "You are acting as a basic AI search stand-in — NOT a live web search. Given a "
+        "set of search-style queries for one branch of a research topic, answer with "
+        "what you already know from training, as concisely and factually as you can. If "
+        "you are not confident, or your knowledge may be outdated or incomplete, say so "
+        'explicitly rather than guessing. Respond with ONLY a single JSON object: '
+        '{"answer": "...", "confidence": "high"|"medium"|"low", "caveat": "..." (empty '
+        'string if none)}.'
+    )
+
+
+def _recall_user_prompt(seed: str, branch: str, queries: list[str]) -> str:
+    query_lines = "\n".join(f"- {q}" for q in queries)
+    return f"Research topic: {seed}\nBranch: {branch}\nQueries:\n{query_lines}"
+
+
+def gemini_35_flash_config(base: LlmConfig | None = None) -> LlmConfig:
+    """Forces the 'basic AI search' stand-in role onto gemini-3.5-flash via
+    Vertex specifically — Neo's explicit choice ("先調用Gemini3.5 Flash充當
+    就可以了") — regardless of whatever model the caller's default
+    LlmConfig otherwise points at (extraction/compression may reasonably
+    use a different/cheaper model for their own purposes).
+
+    Forces vertex_location='global' regardless of VERTEX_LOCATION (which
+    defaults to us-central1): confirmed live that gemini-3.5-flash 404s in
+    us-central1 for this project but works in 'global' — same
+    region-availability gap already found for Claude on Vertex earlier
+    this session, not a one-off. Also forces max_tokens up to 4096:
+    confirmed live that this model (a 'thinking' generation) spends part
+    of its output budget on internal reasoning before emitting visible
+    text, so a small budget either returns empty text
+    (finish_reason=MAX_TOKENS with no content at all) or truncates a real
+    JSON-wrapped answer mid-string — 1024 was enough for a one-word test
+    reply but not for an actual substantive search-style answer."""
+    base = base or default_config_from_env()
+    if base.provider != "vertex":
+        vertex_cfg = vertex_config_from_env()
+        if vertex_cfg is not None:
+            base = vertex_cfg
+    if base.provider == "vertex":
+        return replace(base, model=BASIC_SEARCH_MODEL, vertex_location="global", max_tokens=4096)
+    return replace(base, model=BASIC_SEARCH_MODEL, max_tokens=4096)
+
+
+async def basic_ai_search(
+    seed: str,
+    branch: str,
+    queries: list[str],
+    llm_config: LlmConfig | None = None,
+    *,
+    client: httpx.AsyncClient | None = None,
+) -> RecallFinding:
+    """Stand-in for a real web-search API, per Neo: 搜尋引擎API還沒去用跟研究,
+    先調用 Gemini 3.5 Flash 充當,讓他們去當基本的AI搜尋. This is the model's
+    own prior/training knowledge, NOT live retrieval — GIPE's own principle
+    ("推論不能偽裝成原始證據", model inference must never be disguised as
+    raw evidence) means every result from this function is tagged
+    source_type='llm_recall' by its caller, kept structurally distinct
+    from Stage 4's verified, quote-checked web-crawled evidence. Swap in a
+    real search API later by adding a branch in research_topic() that
+    returns real URLs to crawl instead of calling this — nothing else
+    changes."""
+    cfg = gemini_35_flash_config(llm_config)
+    raw = await complete(
+        cfg, _recall_user_prompt(seed, branch, queries), system=_recall_system_prompt(), client=client
+    )
+    data = _parse_llm_json(raw)
+    return RecallFinding(branch=branch, queries=queries, answer=str(data.get("answer", "")), model=cfg.model)
+
+
 # -- Compression (DRC doc §5, Ch.10.2.6-10.2.7) ------------------------------
+
+
+STATUS_VALUES = ("well_supported", "partially_supported", "contradicted", "insufficient_evidence")
 
 
 @dataclass
 class CompressionCluster:
     label: str
     summary: str
+    status: str = ""
     source_urls: list[str] = field(default_factory=list)
 
 
@@ -191,7 +303,7 @@ class CompressionResult:
         return {
             "core_proposition": self.core_proposition,
             "clusters": [
-                {"label": c.label, "summary": c.summary, "source_urls": c.source_urls}
+                {"label": c.label, "summary": c.summary, "status": c.status, "source_urls": c.source_urls}
                 for c in self.clusters
             ],
             "next_queries": self.next_queries,
@@ -203,18 +315,30 @@ class CompressionResult:
 def _compression_system_prompt() -> str:
     return (
         "You are a research synthesis engine implementing the 'Compression' step of a "
-        "Divergence-Resonance-Compression (DRC) search method. You will be given a research "
-        "seed topic and a list of extracted findings from multiple source pages (each with a "
-        "URL, key claim, stance, and relevance). Synthesize these into a structured research "
-        'map. Respond with ONLY a single JSON object with these keys: "core_proposition" (one '
-        'sentence capturing the central finding across all sources), "clusters" (an array of '
-        'objects, each with "label" a short cluster name, "summary" a 1-3 sentence synthesis, '
-        'and "source_urls" an array of URLs from the given findings that belong to this '
-        "cluster — you MUST only use URLs that were actually given to you in the findings "
-        'list, never invent one), "next_queries" (an array of 3-6 suggested follow-up search '
-        'queries for the next research round), and "unresolved_conflicts" (an array of '
-        "strings describing any contradictions found between sources, or an empty array if "
-        "none)."
+        "Divergence-Resonance-Compression (DRC) search method, extended with two "
+        "principles from a companion theory (GIPSS v0.2, 反證優先 and typed discovery "
+        "status): (1) actively look for findings that CONTRADICT the emerging core "
+        "proposition, not just ones that confirm it — a finding that would overturn your "
+        "current best answer is more valuable than one more confirming example; (2) "
+        "classify each cluster's support using multiple levels rather than a single "
+        "score, since 'not found', 'confirmed false', and 'contradicted by other "
+        "sources' are different situations, not all equivalent to zero.\n\n"
+        "You will be given a research seed topic and a list of findings from multiple "
+        "sources — each has a URL, a source_type ('web_crawled' for independently-"
+        "verified page evidence with checked source quotes, or 'llm_recall' for a "
+        "model's own unverified prior knowledge used only because no live search API is "
+        "configured — treat llm_recall findings as lower-confidence leads, never as "
+        "verified evidence), a key claim, stance, and relevance.\n\n"
+        'Respond with ONLY a single JSON object with these keys: "core_proposition" (one '
+        'sentence capturing the central finding across all sources), "clusters" (an array '
+        'of objects, each with "label" a short cluster name, "summary" a 1-3 sentence '
+        f'synthesis, "status" one of {list(STATUS_VALUES)!r}, and "source_urls" an array '
+        "of URLs from the given findings that belong to this cluster — you MUST only use "
+        'URLs that were actually given to you in the findings list, never invent one), '
+        '"next_queries" (an array of 3-6 suggested follow-up search queries, prioritizing '
+        'ones that could falsify the core_proposition rather than just confirm it), and '
+        '"unresolved_conflicts" (an array of strings describing any contradictions found '
+        "between sources, or an empty array if none)."
     )
 
 
@@ -255,10 +379,14 @@ async def compress(
         unknown = [u for u in urls if u not in known_urls]
         if unknown:
             errors.append(f"cluster {c.get('label')!r} cites URLs not in findings: {unknown}")
+        status = str(c.get("status", ""))
+        if status not in STATUS_VALUES:
+            errors.append(f"cluster {c.get('label')!r} has non-standard status {status!r}")
         clusters.append(
             CompressionCluster(
                 label=str(c.get("label", "")),
                 summary=str(c.get("summary", "")),
+                status=status,
                 source_urls=[u for u in urls if u in known_urls],
             )
         )
@@ -289,6 +417,7 @@ async def research_topic(
     config: AppConfig,
     llm_config: LlmConfig | None = None,
     divergence_settings: DivergenceSettings | None = None,
+    use_llm_recall_fallback: bool = True,
 ) -> ResearchRun:
     """Full DRC loop bootstrapped from caller-supplied seed URLs (see module
     docstring for why there's no live search step yet):
@@ -296,6 +425,17 @@ async def research_topic(
     caller-supplied seed at depth 0 (single page, not a site BFS) ->
     extract_site() (Stage 4) pulls key_claim/stance/relevance per page ->
     compress() synthesizes across all of it into a cognitive-map structure.
+
+    Any branch diverge() produced that the caller gave NO seed URLs for
+    falls back to basic_ai_search() (gemini-3.5-flash 'basic AI search'
+    stand-in) instead of being silently skipped — pass
+    use_llm_recall_fallback=False to disable this and only use real
+    caller-supplied evidence. Every finding is tagged source_type
+    ('web_crawled' vs 'llm_recall') so compress() — and anything reading
+    the persisted run later — can tell verified evidence from recalled
+    prior knowledge apart; they are never merged into one undifferentiated
+    pile.
+
     Persists the run (branches + compression) to `research_runs` for later
     retrieval."""
     if llm_config is None:
@@ -338,9 +478,34 @@ async def research_topic(
                     {
                         "branch": branch,
                         "url": url,
+                        "source_type": "web_crawled",
                         "key_claim": (data.get("key_claim") or {}).get("value"),
                         "stance": (data.get("stance") or {}).get("value"),
                         "relevance": (data.get("relevance") or {}).get("value"),
+                    }
+                )
+
+        if use_llm_recall_fallback:
+            for branch, queries in divergence.branches.items():
+                if seed_urls_by_branch.get(branch) or not queries:
+                    continue  # branch already has real crawled findings, or nothing to recall
+                try:
+                    recall = await basic_ai_search(seed, branch, queries, llm_config)
+                except Exception:
+                    logger.warning("llm recall failed for branch %s", branch, exc_info=True)
+                    continue
+                findings.append(
+                    {
+                        "branch": branch,
+                        "url": f"llm-recall://{branch}",
+                        "source_type": "llm_recall",
+                        "key_claim": recall.answer,
+                        "stance": "informational",
+                        "relevance": (
+                            f"Model prior-knowledge recall ({recall.model}) for branch "
+                            f"'{branch}' — no live search API configured, no seed URLs "
+                            "supplied for this branch."
+                        ),
                     }
                 )
 

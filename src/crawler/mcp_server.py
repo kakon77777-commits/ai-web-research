@@ -15,9 +15,12 @@ project's actual capabilities genuinely match it:
 - `compile_research` ~ CHSA's compile_result
 
 Deliberately NOT exposed, because they're not built (not faked to look
-complete): `search_candidates` (no live search API — see research.py's own
-docstring for why), `resolve_versions` and `get_relations` (both need
-MRASG, which remains unbuilt — see project memory).
+complete): `search_candidates` in the sense CHSA means it — a real
+web-search API — is still unwired; `basic_ai_search` below is Neo's
+explicit stand-in for it (gemini-3.5-flash's own prior knowledge, tagged
+`llm_recall`, never confused with verified crawled evidence). `resolve_versions`
+and `get_relations` both need MRASG/SGCD-style graph engines, which remain
+unbuilt — see project memory.
 
 Stdio transport: this is a local Python CLI tool, not a hosted service
 like [[project-ai-board]]'s Cloudflare Worker — stdio is the standard way
@@ -37,7 +40,7 @@ from mcp.types import ToolAnnotations
 from .config import load_config
 from .llm import default_config_from_env
 from .normalize import registered_domain
-from .research import DivergenceSettings, compress, diverge, research_topic
+from .research import DivergenceSettings, basic_ai_search, compress, diverge, research_topic
 from .run import crawl_site
 from .semantic_extract import extract_site
 from .store import PageStore
@@ -148,13 +151,42 @@ async def diverge_queries(seed: str, queries_per_category: int = 3) -> dict:
 
 @mcp.tool(
     description=(
-        "DRC 'Compression' step: synthesize a list of per-page findings into "
-        "a cognitive-map structure (core_proposition, labeled clusters with "
-        "source_urls, next_queries, unresolved_conflicts). findings_json is "
-        'a JSON array of {"url":..., "key_claim":..., "stance":..., '
-        '"relevance":...} objects. Every cited source_url is checked against '
-        "the findings actually given — unrecognized URLs are dropped and "
-        "reported in validation_errors, never silently trusted."
+        "Stand-in for a live web-search API, per Neo's explicit choice: forces "
+        "gemini-3.5-flash to answer from its own training knowledge for a set of "
+        "queries, NOT live retrieval. Always tag/treat the result as source_type="
+        "'llm_recall' (unverified prior knowledge, a lead worth checking, never "
+        "presented as verified evidence) — this is exactly what research_topic "
+        "does automatically for any branch with no seed URLs supplied."
+    ),
+    annotations=ToolAnnotations(
+        title="Basic AI search (LLM recall)",
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=False,
+        openWorldHint=True,
+    ),
+)
+async def basic_ai_search_tool(seed: str, branch: str, queries_json: str) -> dict:
+    queries = json.loads(queries_json)
+    result = await basic_ai_search(seed, branch, queries, default_config_from_env())
+    return {"branch": result.branch, "queries": result.queries, "answer": result.answer, "model": result.model}
+
+
+@mcp.tool(
+    description=(
+        "DRC 'Compression' step (with GIPSS v0.2's counter-evidence-seeking and typed "
+        "status folded in): synthesize a list of per-source findings into a cognitive-map "
+        "structure (core_proposition, labeled clusters each with a status of "
+        "well_supported/partially_supported/contradicted/insufficient_evidence, "
+        "source_urls, next_queries prioritizing falsification, unresolved_conflicts). "
+        'findings_json is a JSON array of {"url":..., "source_type": "web_crawled"|'
+        '"llm_recall", "key_claim":..., "stance":..., "relevance":...} objects — '
+        "source_type matters: web_crawled is independently-verified page evidence, "
+        "llm_recall is unverified model prior knowledge (used only when no seed URL was "
+        "supplied for a branch) and is treated as a lower-confidence lead, never as "
+        "verified evidence. Every cited source_url is checked against the findings "
+        "actually given — unrecognized URLs are dropped and reported in "
+        "validation_errors, never silently trusted."
     ),
     annotations=ToolAnnotations(
         title="Compile research",
@@ -178,7 +210,13 @@ async def compile_research(seed: str, findings_json: str) -> dict:
         '{"branch_label": ["https://...", ...], ...}. No live web search is '
         "wired in — seed URLs must be supplied by the caller; use "
         "diverge_queries first to help pick what to search for elsewhere, "
-        "then pass the resulting URLs here."
+        "then pass the resulting URLs here. Any branch with no seed URLs "
+        "supplied automatically falls back to gemini-3.5-flash's own prior "
+        "knowledge as a 'basic AI search' stand-in (tagged source_type="
+        "'llm_recall' in the findings that feed compression, never "
+        "conflated with verified web-crawled evidence) — pass "
+        "use_llm_recall_fallback=false to disable this and skip empty "
+        "branches entirely instead."
     ),
     annotations=ToolAnnotations(
         title="Research topic",
@@ -188,9 +226,13 @@ async def compile_research(seed: str, findings_json: str) -> dict:
         openWorldHint=True,
     ),
 )
-async def research_topic_tool(seed: str, seed_urls_by_branch_json: str) -> dict:
+async def research_topic_tool(
+    seed: str, seed_urls_by_branch_json: str, use_llm_recall_fallback: bool = True
+) -> dict:
     seed_urls_by_branch = json.loads(seed_urls_by_branch_json)
-    run = await research_topic(seed, seed_urls_by_branch, _config())
+    run = await research_topic(
+        seed, seed_urls_by_branch, _config(), use_llm_recall_fallback=use_llm_recall_fallback
+    )
     return {
         "run_id": run.id,
         "seed": run.seed,

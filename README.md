@@ -93,6 +93,48 @@ relevance ranking) also isn't a separate step yet — with caller-supplied
 seeds there's no large candidate pool to rank down; revisit once a real
 search API produces one.
 
+### GIPE/GIPSS v0.2 fold-in — LLM recall fallback + typed status
+
+Two more whitepapers folded in narrowly, not their full scope (GIPE v0.1
+`全域欲相位認識論` and GIPSS v0.2 `全域欲相位語義搜尋法`/DRC+SGCD unification;
+see `research.py`'s module docstring for what was deliberately left out —
+GIPE's physical/lab-in-the-loop actions and GIPSS's SGCD dynamic semantic
+graph, both out of scope for a web crawler):
+
+- **`basic_ai_search(seed, branch, queries, llm_config)`** — a stand-in for
+  a live web-search API, per Neo's explicit choice ("先調用 Gemini 3.5
+  Flash 充當就可以了"): forces `gemini-3.5-flash` to answer from its own
+  training knowledge instead of live retrieval. Every result is the model's
+  own prior knowledge, never disguised as verified evidence — GIPE's own
+  principle, "推論不能偽裝成原始證據." `research_topic()` calls this
+  automatically for any divergence branch the caller supplied no seed URLs
+  for (pass `use_llm_recall_fallback=False` to disable this and skip those
+  branches instead). Findings from this path are tagged
+  `source_type: "llm_recall"` (vs. `"web_crawled"` for independently
+  verified page evidence) so `compress()` — and anything reading a
+  persisted run later — never conflates the two.
+- **`gemini_35_flash_config()`** forces two things onto the base LLM config
+  that are easy to get wrong, both confirmed live rather than assumed:
+  `vertex_location="global"` (this model 404s in `us-central1` for this
+  project — same region-availability gap already found for Claude on
+  Vertex; only `global` works), and `max_tokens=4096` (this is a "thinking"
+  generation that spends part of its output budget on internal reasoning
+  before emitting visible text — a small budget like 1024 either returns
+  empty text, `finish_reason=MAX_TOKENS` with `content=None`, or truncates
+  a real JSON-wrapped answer mid-string; 4096 was needed for an actual
+  substantive query, not just a one-word test reply).
+- **`compress()`** now classifies each cluster's `status` as one of
+  `well_supported` / `partially_supported` / `contradicted` /
+  `insufficient_evidence` instead of a single implicit score (GIPSS's 缺失值
+  不是零 — "not found," "contradicted," and "confirmed" are different
+  situations), and its prompt now explicitly asks for counter-evidence-
+  seeking (反證優先): a finding that could overturn the emerging
+  `core_proposition` is worth more than one more confirming example. Live-
+  verified end-to-end: a mixed `web_crawled` + `llm_recall` findings list
+  produced a cluster explicitly flagging that the research seed wasn't a
+  standardized/widely-recognized method — the counter-evidence behavior
+  actually firing, not just present in the prompt.
+
 ## MCP server — protocol access layer over everything above
 
 Built after Neo shared `可組合混合搜尋架構技術白皮書_CHSA_v0.2_MCP補充版.md`
@@ -115,15 +157,19 @@ the [ai-board](https://github.com/kakon77777-commits/ai-board) project's
 Cloudflare Worker, so stdio (how Claude Desktop/Claude Code launch and
 talk to local MCP tools) is the right transport, not Streamable HTTP.
 
-Six tools: `fetch_document`, `extract_evidence`, `diverge_queries`,
-`compile_research`, `research_topic_tool`, `get_research_run`. Names
-follow CHSA's own suggested abstract tool profile (§8.7) where this
-project's actual capabilities genuinely match it — `extract_evidence`'s
-output (`value`/`source_quote`/`confidence`/`quote_verified` per field) is
-close to a field-for-field match with CHSA's standard evidence-object shape
-(§9.2). **Not exposed, because not built** (not faked to look complete):
-`search_candidates` (no live search API), `resolve_versions` and
-`get_relations` (both need MRASG). Every tool carries
+Seven tools: `fetch_document`, `extract_evidence`, `diverge_queries`,
+`basic_ai_search_tool`, `compile_research`, `research_topic_tool`,
+`get_research_run`. Names follow CHSA's own suggested abstract tool
+profile (§8.7) where this project's actual capabilities genuinely match
+it — `extract_evidence`'s output (`value`/`source_quote`/`confidence`/
+`quote_verified` per field) is close to a field-for-field match with
+CHSA's standard evidence-object shape (§9.2); `basic_ai_search_tool` is
+Neo's explicit stand-in for CHSA's `search_candidates` (see GIPE/GIPSS
+fold-in above) — its result is always `source_type: "llm_recall"`, never
+presented as the real thing. **Not exposed, because not built** (not
+faked to look complete): a real `search_candidates` backed by a live
+search API, `resolve_versions` and `get_relations` (both need MRASG).
+Every tool carries
 `readOnlyHint`/`destructiveHint`/`idempotentHint`/`openWorldHint`
 annotations — same compliance lesson the ai-board project learned the hard
 way (a write with real side effects needs `destructiveHint`/
