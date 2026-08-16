@@ -12,3 +12,10 @@ storage/parsed/*
 !storage/parsed/.gitkeep
 storage/metadata/*
 !storage/metadata/.gitkeep
+
+# Copied-in unbounded-axiom IPMCS reference code (2026-08-16) used only to
+# investigate what carries over vs. what's Logic-Matrix-specific before
+# writing identity_search.py — not shipped functionality, includes a
+# vendored node_modules/. The investigation's findings are written up in
+# identity_search.py's own module docstring and README.md instead.
+reference/

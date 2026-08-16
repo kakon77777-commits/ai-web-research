@@ -174,6 +174,16 @@ class PageStore:
         return row[0] if row else None
 
     def upsert(self, record: PageRecord, unchanged: bool) -> None:
+        # raw_path/markdown_path use COALESCE(excluded, pages.*) below, not a
+        # bare excluded.* overwrite: on an unchanged re-crawl, run.py
+        # deliberately passes raw_path=markdown_path=None (skips rewriting
+        # files that haven't changed) — a bare overwrite would null out the
+        # PRIOR real path on every single unchanged re-crawl, permanently
+        # losing the pointer to a .md file that's still valid and still on
+        # disk. Found live: 3 real pages from early sessions all showed
+        # markdown_path=None in the DB despite their .md files genuinely
+        # existing under storage/parsed/, discovered while building
+        # identity search (which needs to actually read that content).
         doc_id = document_id_for(record.url)
         previous = self._conn.execute(
             "SELECT unchanged_since FROM pages WHERE document_id = ?", (doc_id,)
@@ -197,8 +207,8 @@ class PageStore:
                 published_at=excluded.published_at,
                 status_code=excluded.status_code,
                 content_type=excluded.content_type,
-                raw_path=excluded.raw_path,
-                markdown_path=excluded.markdown_path,
+                raw_path=COALESCE(excluded.raw_path, pages.raw_path),
+                markdown_path=COALESCE(excluded.markdown_path, pages.markdown_path),
                 content_hash=excluded.content_hash,
                 parser_version=excluded.parser_version,
                 language=excluded.language,

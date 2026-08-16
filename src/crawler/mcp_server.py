@@ -15,13 +15,19 @@ project's actual capabilities genuinely match it:
 - `compile_research` ~ CHSA's compile_result
 
 Deliberately NOT exposed, because they're not built (not faked to look
-complete): `search_candidates` in the sense CHSA means it — a real
-web-search API — is still unwired; `basic_ai_search` below is Neo's
-explicit stand-in for it (whichever model `BASIC_SEARCH_MODEL` currently
-names — gemini-3.7-flash as of 2026-08-16 — using its own prior
-knowledge, tagged `llm_recall`, never confused with verified crawled
-evidence). `resolve_versions`
-and `get_relations` both need MRASG/SGCD-style graph engines, which remain
+complete): `search_candidates` in the sense CHSA means it — a real LIVE
+web-search API that could discover NEW candidate URLs this project has
+never seen — is still unwired; `basic_ai_search` below is Neo's explicit
+stand-in for it (whichever model `BASIC_SEARCH_MODEL` currently names —
+gemini-3.7-flash as of 2026-08-16 — using its own prior knowledge,
+tagged `llm_recall`, never confused with verified crawled evidence).
+`identity_search_tool` is a DIFFERENT thing from `search_candidates`,
+not a replacement for it — it searches this project's OWN
+already-crawled corpus (real query divergence + exact/lexical scoring +
+identity fold, ported 2026-08-16 from IPMCS v0.1, see
+identity_search.py's own module docstring for exactly what was and
+wasn't ported), never the open web. `resolve_versions` and
+`get_relations` both need MRASG/SGCD-style graph engines, which remain
 unbuilt — see project memory.
 
 Stdio transport: this is a local Python CLI tool, not a hosted service
@@ -33,13 +39,14 @@ tool process, not Streamable HTTP.
 from __future__ import annotations
 
 import json
-from dataclasses import replace
+from dataclasses import asdict, replace
 from pathlib import Path
 
 from mcp.server.fastmcp import FastMCP
 from mcp.types import ToolAnnotations
 
 from .config import load_config
+from .identity_search import identity_search
 from .llm import default_config_from_env
 from .normalize import registered_domain
 from .research import DivergenceSettings, basic_ai_search, compress, diverge, research_topic
@@ -241,6 +248,47 @@ async def research_topic_tool(
         "seed": run.seed,
         "branches": run.branches,
         "compression": run.compression,
+    }
+
+
+@mcp.tool(
+    description=(
+        "Identity-preserving multi-cut search (IPMCS-lite) over THIS PROJECT'S "
+        "OWN already-crawled corpus (the `pages` table) — not the open web, and "
+        "not a replacement for search_candidates/basic_ai_search. Scores every "
+        "crawled page by exact-match + lexical (token/trigram) overlap, folds "
+        "hits that land on the same document_id across query branches into one "
+        "ranked object (has_exact desc, then max_score desc). Ported 2026-08-16 "
+        "from IPMCS v0.1 / unbounded-axiom's ipmcs_search.mjs — see "
+        "identity_search.py's module docstring for the exact line between what "
+        "was ported (query-divergence reuse, identity-fold+ranking, exact/"
+        "lexical scoring algorithm) and what's deliberately NOT here yet (no "
+        "semantic/Vectorize channel, no multi-view chunk segmentation, no "
+        "ANLA-verified addressing — every hit is view='document' only). Pass "
+        "use_divergence=true for a real, small-cost LLM call generating "
+        "alternate-phrasing query branches before scoring; without it, only "
+        "the literal query text is scored."
+    ),
+    annotations=ToolAnnotations(
+        title="Identity search (own corpus)",
+        readOnlyHint=True,
+        destructiveHint=False,
+        idempotentHint=False,
+        openWorldHint=False,
+    ),
+)
+async def identity_search_tool(query: str, use_divergence: bool = False, top_k: int = 10) -> dict:
+    config = _config()
+    store = PageStore(config.storage.db_path)
+    try:
+        result = await identity_search(query, store, use_divergence=use_divergence, top_k=top_k)
+    finally:
+        store.close()
+    return {
+        "query": result.query,
+        "branches": result.branches,
+        "per_branch": result.per_branch,
+        "objects": [asdict(o) for o in result.objects],
     }
 
 

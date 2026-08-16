@@ -143,6 +143,62 @@ graph, both out of scope for a web crawler):
   standardized/widely-recognized method — the counter-evidence behavior
   actually firing, not just present in the prompt.
 
+## Identity search (IPMCS-lite) — search over this project's own corpus
+
+Ported 2026-08-16 from IPMCS v0.1 (`IPMCS_v0.1_同一性多切面展開搜尋法_2026-08-15.md`)
+and the already-working implementation in
+[unbounded-axiom](https://github.com/kakon77733-commits/unbounded-axiom)
+(`scripts/ipmcs/ipmcs_search.mjs`, `shell/public/semantic/semantic-core.js`),
+after Neo's explicit correction that this project, not a dependency on
+another repo's MCP server, is meant to be where every search method lives
+natively ("這一個ai-web-research是做一個所有的搜尋法的...要偷懶使用MCP跟API。也是
+反過來的").
+
+`src/crawler/identity_search.py` — see its own module docstring for the
+full file-by-file breakdown of what got ported vs. what's a genuine gap
+here, checked before writing a line of it rather than assumed from the
+paper's description. In short:
+
+- **Ported, reused as-is**: query divergence (`diverge()`, already existed
+  in `research.py` before IPMCS did — unbounded-axiom's own IPMCS already
+  calls back into this same function).
+- **Ported, corpus-agnostic**: identity fold + candidate union + ranking
+  (group hits by canonical `document_id` across every branch/retriever,
+  rank has_exact-then-max_score) — a faithful port of `ipmcsSearch()`.
+- **Ported algorithm, re-targeted schema**: exact/lexical scoring
+  (`normalize_query`/`tokenize`/`trigrams`/token-overlap/trigram-overlap)
+  is a direct port of `semantic-core.js`'s functions, but scored against
+  this project's own `title` + full crawled Markdown instead of Logic
+  Matrix's curated `{title, summary, headings, keywords}` paper schema —
+  a real re-target, not a drop-in reuse.
+- **Not ported, not faked as present**: no semantic/Vectorize channel (no
+  vector index of this project's own crawled pages exists yet), no
+  multi-view segmentation (every hit is `view="document"` only — no
+  chunk/changepoint views exist for this corpus), no ANLA-verified
+  addressing (would need a from-scratch archive of this project's own
+  corpus, not unbounded-axiom's existing 88MB Logic-Matrix-specific one).
+
+```bash
+# scores every already-crawled page by literal query text only
+python -m crawler search "your query" --top-k 10
+
+# adds a real (small-cost) LLM divergence call first, generating
+# alternate-phrasing branches before scoring each one
+python -m crawler search "your query" --divergence
+```
+
+Also exposed as the `identity_search_tool` MCP tool (see below) —
+`use_divergence`/`top_k` map to the same CLI flags.
+
+Real bug found while building this (fixed, not worked around): `store.py`'s
+`upsert()` unconditionally overwrote `markdown_path` with `NULL` on every
+unchanged re-crawl (`run.py` deliberately passes `markdown_path=None` then,
+to skip rewriting files that haven't changed) — silently losing the pointer
+to a `.md` file still valid and still on disk. Fixed with
+`COALESCE(excluded.markdown_path, pages.markdown_path)`; the 3 real rows
+this had already corrupted in the live database were backfilled after
+confirming each reconstructed path resolves to a real, existing file.
+
 ## MCP server — protocol access layer over everything above
 
 Built after Neo shared `可組合混合搜尋架構技術白皮書_CHSA_v0.2_MCP補充版.md`
@@ -165,18 +221,22 @@ the [ai-board](https://github.com/kakon77777-commits/ai-board) project's
 Cloudflare Worker, so stdio (how Claude Desktop/Claude Code launch and
 talk to local MCP tools) is the right transport, not Streamable HTTP.
 
-Seven tools: `fetch_document`, `extract_evidence`, `diverge_queries`,
+Eight tools: `fetch_document`, `extract_evidence`, `diverge_queries`,
 `basic_ai_search_tool`, `compile_research`, `research_topic_tool`,
-`get_research_run`. Names follow CHSA's own suggested abstract tool
-profile (§8.7) where this project's actual capabilities genuinely match
-it — `extract_evidence`'s output (`value`/`source_quote`/`confidence`/
-`quote_verified` per field) is close to a field-for-field match with
-CHSA's standard evidence-object shape (§9.2); `basic_ai_search_tool` is
-Neo's explicit stand-in for CHSA's `search_candidates` (see GIPE/GIPSS
-fold-in above) — its result is always `source_type: "llm_recall"`, never
-presented as the real thing. **Not exposed, because not built** (not
-faked to look complete): a real `search_candidates` backed by a live
-search API, `resolve_versions` and `get_relations` (both need MRASG).
+`identity_search_tool`, `get_research_run`. Names follow CHSA's own
+suggested abstract tool profile (§8.7) where this project's actual
+capabilities genuinely match it — `extract_evidence`'s output
+(`value`/`source_quote`/`confidence`/`quote_verified` per field) is close
+to a field-for-field match with CHSA's standard evidence-object shape
+(§9.2); `basic_ai_search_tool` is Neo's explicit stand-in for CHSA's
+`search_candidates` (see GIPE/GIPSS fold-in above) — its result is always
+`source_type: "llm_recall"`, never presented as the real thing.
+`identity_search_tool` is a different thing from `search_candidates`, not
+a replacement for it — it searches this project's own already-crawled
+corpus (see Identity search section above), never the open web. **Not
+exposed, because not built** (not faked to look complete): a real
+`search_candidates` backed by a live web-search API, `resolve_versions`
+and `get_relations` (both need MRASG).
 Every tool carries
 `readOnlyHint`/`destructiveHint`/`idempotentHint`/`openWorldHint`
 annotations — same compliance lesson the ai-board project learned the hard
@@ -185,7 +245,7 @@ way (a write with real side effects needs `destructiveHint`/
 
 ```bash
 # spawns the server as a real subprocess, drives it with a real MCP
-# client over stdio, calls all six tools for real (not mocked)
+# client over stdio, calls all eight tools for real (not mocked)
 .venv/Scripts/python.exe scripts/verify_mcp_server.py
 ```
 

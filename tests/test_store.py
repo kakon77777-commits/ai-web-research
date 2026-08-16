@@ -63,6 +63,32 @@ def test_upsert_marks_unchanged_since_on_repeat_hash(tmp_path: Path):
     store.close()
 
 
+def test_unchanged_recrawl_does_not_null_out_existing_markdown_path(tmp_path: Path):
+    """run.py deliberately passes raw_path=markdown_path=None on an unchanged
+    re-crawl (it skips rewriting files that haven't changed) — a bare
+    excluded.* overwrite would null out the prior real path every time,
+    losing the pointer to a .md file that's still valid on disk. Reproduces
+    a real bug found live: 3 pages from early sessions all had
+    markdown_path=None despite their .md files genuinely existing."""
+    store = PageStore(tmp_path / "crawl.db")
+    first = _record("https://example.com/a", content_hash="hash-1")
+    first.raw_path = "storage/raw/example.com/doc.html"
+    first.markdown_path = "storage/parsed/example.com/doc.md"
+    store.upsert(first, unchanged=False)
+
+    # Matches run.py's real call shape for an unchanged re-crawl: same
+    # content_hash, but raw_path/markdown_path are None because the files
+    # were never rewritten.
+    second = _record("https://example.com/a", content_hash="hash-1")
+    store.upsert(second, unchanged=True)
+
+    rows = store.all_pages()
+    assert len(rows) == 1
+    assert rows[0]["raw_path"] == "storage/raw/example.com/doc.html"
+    assert rows[0]["markdown_path"] == "storage/parsed/example.com/doc.md"
+    store.close()
+
+
 def test_document_id_is_stable_for_same_url():
     assert document_id_for("https://example.com/a") == document_id_for("https://example.com/a")
     assert document_id_for("https://example.com/a") != document_id_for("https://example.com/b")

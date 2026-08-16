@@ -22,6 +22,13 @@ from pathlib import Path
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
+# Windows consoles default stdout to the system ANSI codepage (cp950 for
+# Traditional Chinese locales), not UTF-8 — an LLM-generated string
+# containing e.g. Arabic (from diverge_queries' "language" branch) then
+# crashes plain print() with UnicodeEncodeError. Reproduced live 2026-08-16.
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding="utf-8")
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -45,6 +52,7 @@ async def main() -> int:
                 "diverge_queries",
                 "compile_research",
                 "research_topic_tool",
+                "identity_search_tool",
                 "get_research_run",
             }
             assert expected.issubset(set(names)), f"missing tools: {expected - set(names)}"
@@ -95,6 +103,14 @@ async def main() -> int:
             print(json.dumps(research, indent=2, ensure_ascii=False))
             run_id = research["run_id"]
             assert run_id is not None, "research_topic_tool did not return a run_id"
+
+            print("\n--- identity_search_tool('example', use_divergence=False) ---")
+            result = await session.call_tool(
+                "identity_search_tool", {"query": "example", "use_divergence": False, "top_k": 5}
+            )
+            identity = json.loads(result.content[0].text)
+            print(json.dumps(identity, indent=2, ensure_ascii=False))
+            assert identity["branches"] == ["original"], "expected only the original branch without divergence"
 
             print(f"\n--- get_research_run({run_id}) ---")
             result = await session.call_tool("get_research_run", {"run_id": run_id})

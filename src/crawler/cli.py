@@ -2,6 +2,7 @@
 `crawler crawl <url> [--config PATH] [--max-pages N] [--max-depth N]`
 `crawler extract <url> [--config PATH] [--schema PATH]`
 `crawler research <seed> --seeds-file PATH [--config PATH]`
+`crawler search <query> [--divergence] [--top-k N] [--config PATH]`
 """
 
 from __future__ import annotations
@@ -14,10 +15,12 @@ import sys
 from pathlib import Path
 
 from .config import load_config
+from .identity_search import identity_search
 from .normalize import registered_domain
 from .research import research_topic
 from .run import crawl_site
 from .semantic_extract import extract_site
+from .store import PageStore
 
 DEFAULT_CONFIG_PATH = Path("config/crawler.yaml")
 DEFAULT_SCHEMA_PATH = Path("config/extraction_schema.example.json")
@@ -25,11 +28,12 @@ DEFAULT_SCHEMA_PATH = Path("config/extraction_schema.example.json")
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="crawler", description="Stage 1 AI crawler")
-    parser.add_argument("command", choices=["crawl", "extract", "research"])
+    parser.add_argument("command", choices=["crawl", "extract", "research", "search"])
     parser.add_argument(
         "url",
         help="Seed URL to crawl; a URL on the domain to run extraction for; "
-        "or the research seed concept/question (used by 'research')",
+        "the research seed concept/question (used by 'research'); "
+        "or the search query text (used by 'search')",
     )
     parser.add_argument("--config", type=Path, default=DEFAULT_CONFIG_PATH)
     parser.add_argument("--max-pages", type=int, default=None)
@@ -51,6 +55,14 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help="JSON file mapping branch label -> list of seed URLs (required by 'research')",
+    )
+    parser.add_argument(
+        "--divergence",
+        action="store_true",
+        help="Use LLM query divergence (real, small cost) before scoring (used by 'search')",
+    )
+    parser.add_argument(
+        "--top-k", type=int, default=10, help="Max results to return (used by 'search')"
     )
     return parser
 
@@ -84,7 +96,7 @@ def main(argv: list[str] | None = None) -> int:
             f"extracted={stats.extracted} "
             f"skipped_missing_markdown={stats.skipped_missing_markdown} failed={stats.failed}"
         )
-    else:
+    elif args.command == "research":
         if args.seeds_file is None:
             print("research requires --seeds-file (JSON: {branch: [url, ...]})", file=sys.stderr)
             return 2
@@ -92,6 +104,20 @@ def main(argv: list[str] | None = None) -> int:
         run = asyncio.run(research_topic(args.url, seed_urls_by_branch, config))
         print(f"research_run_id={run.id}")
         print(json.dumps(run.compression, ensure_ascii=False, indent=2))
+    else:
+        store = PageStore(config.storage.db_path)
+        try:
+            result = asyncio.run(
+                identity_search(
+                    args.url, store, use_divergence=args.divergence, top_k=args.top_k
+                )
+            )
+        finally:
+            store.close()
+        print(f"query={result.query!r} branches={result.branches}")
+        for o in result.objects:
+            channels = sorted({p.retriever for p in o.paths})
+            print(f"  {o.url}  has_exact={o.has_exact}  max_score={o.max_score:.3f}  channels={channels}")
     return 0
 
 
