@@ -195,7 +195,7 @@ async def diverge(
 # -- LLM recall: a "basic AI search" stand-in (GIPE 附錄A, one epistemic
 # action among many) -----------------------------------------------------
 
-BASIC_SEARCH_MODEL = "gemini-3.5-flash"
+BASIC_SEARCH_MODEL = "gemini-3.7-flash"
 
 
 @dataclass
@@ -223,24 +223,34 @@ def _recall_user_prompt(seed: str, branch: str, queries: list[str]) -> str:
     return f"Research topic: {seed}\nBranch: {branch}\nQueries:\n{query_lines}"
 
 
-def gemini_35_flash_config(base: LlmConfig | None = None) -> LlmConfig:
-    """Forces the 'basic AI search' stand-in role onto gemini-3.5-flash via
-    Vertex specifically — Neo's explicit choice ("先調用Gemini3.5 Flash充當
-    就可以了") — regardless of whatever model the caller's default
-    LlmConfig otherwise points at (extraction/compression may reasonably
-    use a different/cheaper model for their own purposes).
+def basic_search_llm_config(base: LlmConfig | None = None) -> LlmConfig:
+    """Forces the 'basic AI search' stand-in role onto whatever model
+    BASIC_SEARCH_MODEL currently names, via Vertex specifically —
+    regardless of whatever model the caller's default LlmConfig otherwise
+    points at (extraction/compression may reasonably use a different/
+    cheaper model for their own purposes). Named model-agnostically
+    (not e.g. `gemini_35_flash_config`) because this is Neo's second
+    swap of BASIC_SEARCH_MODEL already (3.5-flash on 2026-07-25 ->
+    3.7-flash on 2026-08-16, "先把AI模型改成GEMINI3.7...之後要加新的搜尋法" —
+    framed as a placeholder pending real search-API research, not a
+    settled choice) — a version-specific function name would just need
+    renaming again at the next swap.
 
     Forces vertex_location='global' regardless of VERTEX_LOCATION (which
-    defaults to us-central1): confirmed live that gemini-3.5-flash 404s in
-    us-central1 for this project but works in 'global' — same
-    region-availability gap already found for Claude on Vertex earlier
-    this session, not a one-off. Also forces max_tokens up to 4096:
-    confirmed live that this model (a 'thinking' generation) spends part
-    of its output budget on internal reasoning before emitting visible
-    text, so a small budget either returns empty text
-    (finish_reason=MAX_TOKENS with no content at all) or truncates a real
-    JSON-wrapped answer mid-string — 1024 was enough for a one-word test
-    reply but not for an actual substantive search-style answer."""
+    defaults to us-central1): confirmed live for gemini-3.5-flash that it
+    404s in us-central1 for this project but works in 'global' (same
+    region-availability gap already found for Claude on Vertex), and
+    re-confirmed live for gemini-3.7-flash specifically before this swap
+    shipped — not assumed to carry over just because the model name looks
+    similar. Also forces max_tokens up to 4096: confirmed live for
+    gemini-3.5-flash that this model family spends part of its output
+    budget on internal reasoning before emitting visible text, so a small
+    budget either returns empty text (finish_reason=MAX_TOKENS with no
+    content at all) or truncates a real JSON-wrapped answer mid-string —
+    1024 was enough for a one-word test reply but not an actual
+    substantive search-style answer. gemini-3.7-flash live-verified to
+    need the same 4096 floor via basic_ai_search() itself, not just a
+    trivial "say OK" call, before trusting this budget for it too."""
     base = base or default_config_from_env()
     if base.provider != "vertex":
         vertex_cfg = vertex_config_from_env()
@@ -260,8 +270,10 @@ async def basic_ai_search(
     client: httpx.AsyncClient | None = None,
 ) -> RecallFinding:
     """Stand-in for a real web-search API, per Neo: 搜尋引擎API還沒去用跟研究,
-    先調用 Gemini 3.5 Flash 充當,讓他們去當基本的AI搜尋. This is the model's
-    own prior/training knowledge, NOT live retrieval — GIPE's own principle
+    先調用 Gemini Flash 充當,讓他們去當基本的AI搜尋 — the exact model is
+    whatever BASIC_SEARCH_MODEL currently names (3.5-flash on 2026-07-25,
+    3.7-flash on 2026-08-16). This is the model's own prior/training
+    knowledge, NOT live retrieval — GIPE's own principle
     ("推論不能偽裝成原始證據", model inference must never be disguised as
     raw evidence) means every result from this function is tagged
     source_type='llm_recall' by its caller, kept structurally distinct
@@ -269,7 +281,7 @@ async def basic_ai_search(
     real search API later by adding a branch in research_topic() that
     returns real URLs to crawl instead of calling this — nothing else
     changes."""
-    cfg = gemini_35_flash_config(llm_config)
+    cfg = basic_search_llm_config(llm_config)
     raw = await complete(
         cfg, _recall_user_prompt(seed, branch, queries), system=_recall_system_prompt(), client=client
     )

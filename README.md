@@ -102,27 +102,35 @@ GIPE's physical/lab-in-the-loop actions and GIPSS's SGCD dynamic semantic
 graph, both out of scope for a web crawler):
 
 - **`basic_ai_search(seed, branch, queries, llm_config)`** — a stand-in for
-  a live web-search API, per Neo's explicit choice ("先調用 Gemini 3.5
-  Flash 充當就可以了"): forces `gemini-3.5-flash` to answer from its own
-  training knowledge instead of live retrieval. Every result is the model's
-  own prior knowledge, never disguised as verified evidence — GIPE's own
-  principle, "推論不能偽裝成原始證據." `research_topic()` calls this
-  automatically for any divergence branch the caller supplied no seed URLs
-  for (pass `use_llm_recall_fallback=False` to disable this and skip those
-  branches instead). Findings from this path are tagged
-  `source_type: "llm_recall"` (vs. `"web_crawled"` for independently
-  verified page evidence) so `compress()` — and anything reading a
-  persisted run later — never conflates the two.
-- **`gemini_35_flash_config()`** forces two things onto the base LLM config
-  that are easy to get wrong, both confirmed live rather than assumed:
-  `vertex_location="global"` (this model 404s in `us-central1` for this
-  project — same region-availability gap already found for Claude on
-  Vertex; only `global` works), and `max_tokens=4096` (this is a "thinking"
-  generation that spends part of its output budget on internal reasoning
-  before emitting visible text — a small budget like 1024 either returns
-  empty text, `finish_reason=MAX_TOKENS` with `content=None`, or truncates
-  a real JSON-wrapped answer mid-string; 4096 was needed for an actual
-  substantive query, not just a one-word test reply).
+  a live web-search API, per Neo's explicit choice ("先調用 Gemini Flash
+  充當就可以了"): forces `BASIC_SEARCH_MODEL` (`gemini-3.7-flash` as of
+  2026-08-16, was `gemini-3.5-flash`; Neo's framing — "畢竟我還沒去研究搜尋API"
+  — treats this as a placeholder swapped as newer models ship, not a
+  settled choice) to answer from its own training knowledge instead of
+  live retrieval. Every result is the model's own prior knowledge, never
+  disguised as verified evidence — GIPE's own principle, "推論不能偽裝成
+  原始證據." `research_topic()` calls this automatically for any divergence
+  branch the caller supplied no seed URLs for (pass
+  `use_llm_recall_fallback=False` to disable this and skip those branches
+  instead). Findings from this path are tagged `source_type: "llm_recall"`
+  (vs. `"web_crawled"` for independently verified page evidence) so
+  `compress()` — and anything reading a persisted run later — never
+  conflates the two.
+- **`basic_search_llm_config()`** (named model-agnostically, not e.g.
+  `gemini_35_flash_config`, since `BASIC_SEARCH_MODEL` has already been
+  swapped once) forces two things onto the base LLM config that are easy
+  to get wrong, both confirmed live rather than assumed — and
+  re-confirmed live for `gemini-3.7-flash` specifically when it replaced
+  `gemini-3.5-flash`, not assumed to carry over on model-name similarity
+  alone: `vertex_location="global"` (this model family 404s in
+  `us-central1` for this project — same region-availability gap already
+  found for Claude on Vertex; only `global` works), and `max_tokens=4096`
+  (this is a "thinking" generation that spends part of its output budget
+  on internal reasoning before emitting visible text — a small budget
+  like 1024 either returns empty text, `finish_reason=MAX_TOKENS` with
+  `content=None`, or truncates a real JSON-wrapped answer mid-string;
+  4096 was needed for an actual substantive query, not just a one-word
+  test reply).
 - **`compress()`** now classifies each cluster's `status` as one of
   `well_supported` / `partially_supported` / `contradicted` /
   `insufficient_evidence` instead of a single implicit score (GIPSS's 缺失值

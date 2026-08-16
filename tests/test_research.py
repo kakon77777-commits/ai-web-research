@@ -7,9 +7,9 @@ from crawler.research import (
     BASIC_SEARCH_MODEL,
     DivergenceSettings,
     basic_ai_search,
+    basic_search_llm_config,
     compress,
     diverge,
-    gemini_35_flash_config,
 )
 
 
@@ -77,60 +77,61 @@ async def test_diverge_handles_missing_category_gracefully():
     assert "task" not in result.branches
 
 
-# -- basic_ai_search() / gemini_35_flash_config() ------------------------------
+# -- basic_ai_search() / basic_search_llm_config() ------------------------------
 
 
-def test_gemini_35_flash_config_overrides_model_on_vertex_base():
+def test_basic_search_llm_config_overrides_model_on_vertex_base():
     base = LlmConfig(
         provider="vertex", model="gemini-2.5-flash-lite", vertex_project="p",
         vertex_location="us-central1", vertex_credentials_path="/fake/key.json",
     )
-    cfg = gemini_35_flash_config(base)
+    cfg = basic_search_llm_config(base)
     assert cfg.model == BASIC_SEARCH_MODEL
     assert cfg.provider == "vertex"
     assert cfg.vertex_project == "p"
 
 
-def test_gemini_35_flash_config_forces_global_region_and_larger_token_budget():
-    # gemini-3.5-flash 404s in us-central1 for this project — confirmed
-    # live; only 'global' works. It's also a 'thinking' generation that
-    # spends part of its output budget on internal reasoning before
-    # emitting visible text — confirmed live that the default max_tokens
-    # (1024) truncates a real substantive answer mid-JSON, so this must
-    # bump it, not just override model/location.
+def test_basic_search_llm_config_forces_global_region_and_larger_token_budget():
+    # Both gemini-3.5-flash and gemini-3.7-flash 404 in us-central1 for
+    # this project — confirmed live; only 'global' works. This model
+    # family is also a 'thinking' generation that spends part of its
+    # output budget on internal reasoning before emitting visible text —
+    # confirmed live that the default max_tokens (1024) truncates a real
+    # substantive answer mid-JSON, so this must bump it, not just
+    # override model/location.
     base = LlmConfig(
         provider="vertex", model="gemini-2.5-flash-lite", vertex_project="p",
         vertex_location="us-central1", vertex_credentials_path="/fake/key.json",
     )
-    cfg = gemini_35_flash_config(base)
+    cfg = basic_search_llm_config(base)
     assert cfg.vertex_location == "global"
     assert cfg.max_tokens == 4096
 
 
-def test_gemini_35_flash_config_switches_to_vertex_when_available(monkeypatch):
+def test_basic_search_llm_config_switches_to_vertex_when_available(monkeypatch):
     monkeypatch.setenv("VERTEX_PROJECT_ID", "p")
     monkeypatch.setenv("VERTEX_CREDENTIALS_PATH", "/fake/key.json")
     base = LlmConfig(provider="anthropic", api_key="k", model="claude-haiku-4-5-20251001")
 
-    cfg = gemini_35_flash_config(base)
+    cfg = basic_search_llm_config(base)
     assert cfg.provider == "vertex"
     assert cfg.model == BASIC_SEARCH_MODEL
 
 
-def test_gemini_35_flash_config_keeps_non_vertex_if_no_vertex_configured(monkeypatch):
+def test_basic_search_llm_config_keeps_non_vertex_if_no_vertex_configured(monkeypatch):
     monkeypatch.delenv("VERTEX_PROJECT_ID", raising=False)
     monkeypatch.delenv("VERTEX_CREDENTIALS_PATH", raising=False)
     monkeypatch.delenv("GOOGLE_APPLICATION_CREDENTIALS", raising=False)
     base = LlmConfig(provider="anthropic", api_key="k", model="claude-haiku-4-5-20251001")
 
-    cfg = gemini_35_flash_config(base)
+    cfg = basic_search_llm_config(base)
     assert cfg.provider == "anthropic"
     assert cfg.model == BASIC_SEARCH_MODEL
 
 
 async def test_basic_ai_search_returns_recall_finding(monkeypatch):
     # basic_ai_search()'s config always prefers vertex if configured (see
-    # gemini_35_flash_config) — this machine's real .env has real Vertex
+    # basic_search_llm_config) — this machine's real .env has real Vertex
     # credentials, and the vertex provider ignores the injected httpx
     # client entirely (it uses its own SDK client), so without clearing
     # these env vars this test would make a real network call instead of

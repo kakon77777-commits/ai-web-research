@@ -17,8 +17,10 @@ project's actual capabilities genuinely match it:
 Deliberately NOT exposed, because they're not built (not faked to look
 complete): `search_candidates` in the sense CHSA means it — a real
 web-search API — is still unwired; `basic_ai_search` below is Neo's
-explicit stand-in for it (gemini-3.5-flash's own prior knowledge, tagged
-`llm_recall`, never confused with verified crawled evidence). `resolve_versions`
+explicit stand-in for it (whichever model `BASIC_SEARCH_MODEL` currently
+names — gemini-3.7-flash as of 2026-08-16 — using its own prior
+knowledge, tagged `llm_recall`, never confused with verified crawled
+evidence). `resolve_versions`
 and `get_relations` both need MRASG/SGCD-style graph engines, which remain
 unbuilt — see project memory.
 
@@ -152,8 +154,9 @@ async def diverge_queries(seed: str, queries_per_category: int = 3) -> dict:
 @mcp.tool(
     description=(
         "Stand-in for a live web-search API, per Neo's explicit choice: forces "
-        "gemini-3.5-flash to answer from its own training knowledge for a set of "
-        "queries, NOT live retrieval. Always tag/treat the result as source_type="
+        "gemini-3.7-flash (BASIC_SEARCH_MODEL) to answer from its own training "
+        "knowledge for a set of queries, NOT live retrieval. Always tag/treat the "
+        "result as source_type="
         "'llm_recall' (unverified prior knowledge, a lead worth checking, never "
         "presented as verified evidence) — this is exactly what research_topic "
         "does automatically for any branch with no seed URLs supplied."
@@ -211,7 +214,7 @@ async def compile_research(seed: str, findings_json: str) -> dict:
         "wired in — seed URLs must be supplied by the caller; use "
         "diverge_queries first to help pick what to search for elsewhere, "
         "then pass the resulting URLs here. Any branch with no seed URLs "
-        "supplied automatically falls back to gemini-3.5-flash's own prior "
+        "supplied automatically falls back to gemini-3.7-flash's own prior "
         "knowledge as a 'basic AI search' stand-in (tagged source_type="
         "'llm_recall' in the findings that feed compression, never "
         "conflated with verified web-crawled evidence) — pass "
