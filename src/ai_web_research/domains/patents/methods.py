@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 from ai_web_research.core.types import ArtifactKind

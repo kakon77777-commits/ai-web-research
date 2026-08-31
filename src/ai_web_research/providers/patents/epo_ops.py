@@ -1,3 +1,4 @@
+
 from __future__ import annotations
 
 from hashlib import sha256
@@ -132,6 +133,7 @@ def _parse_exchange_document(doc: ET.Element, index: int, action_id: str) -> Art
     pub_country, pub_number, pub_kind, pub_date = _doc_id(pub_ref)
     app_country, app_number, app_kind, _ = _doc_id(app_ref)
 
+    # exchange-document attributes are a reliable fallback in OPS.
     pub_country = pub_country or doc.attrib.get("country")
     pub_number = pub_number or doc.attrib.get("doc-number")
     pub_kind = pub_kind or doc.attrib.get("kind")
@@ -146,7 +148,11 @@ def _parse_exchange_document(doc: ET.Element, index: int, action_id: str) -> Art
     applicants = _party_names(bibliographic, "applicants")
     inventors = _party_names(bibliographic, "inventors")
 
-    artifact_id = f"epo:publication:{publication}" if publication else f"{action_id}:epo:{index}"
+    artifact_id = (
+        f"epo:publication:{publication}"
+        if publication
+        else f"{action_id}:epo:{index}"
+    )
     return ArtifactRef(
         ArtifactKind.CANDIDATE,
         artifact_id,
@@ -177,12 +183,22 @@ def _range(value: object) -> str:
         end = max(start, int(end_s))
     except Exception:
         return "1-25"
+    # OPS REST bibliographic retrieval/search is bounded; v0.1 caps one page at 100.
     end = min(end, 100)
     return f"{start}-{end}"
 
 
 def _policy_hash(rules: tuple[PolicyRule, ...]) -> str:
-    payload = [{"id": r.rule_id, "action": r.action.value, "effect": r.effect.value, "value": r.value, "constraints": r.constraints} for r in rules]
+    payload = [
+        {
+            "id": rule.rule_id,
+            "action": rule.action.value,
+            "effect": rule.effect.value,
+            "value": rule.value,
+            "constraints": rule.constraints,
+        }
+        for rule in rules
+    ]
     return sha256(dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")).hexdigest()
 
 
@@ -192,27 +208,36 @@ def epo_ops_policy_profile() -> SourcePolicyProfile:
         uri="https://www.epo.org/en/service-support/ordering/terms-and-conditions/ops-terms-and-conditions",
         title="Terms and conditions for use of the EPO's Open Patent Services (OPS)",
         retrieved_at="2026-08-31T12:00:00+00:00",
-        effective_at=None, expires_at=None, content_hash=None,
+        effective_at=None,
+        expires_at=None,
+        content_hash=None,
         anchor={"sections": ["3 Use of the data", "4 Payments due"]},
-        authority="provider", interpretation_status="provider_human_readable",
+        authority="provider",
+        interpretation_status="provider_human_readable",
     )
     fair = PolicySourceRef(
         source_id="policy-source.epo.ops.fair-use",
         uri="https://www.epo.org/en/service-support/ordering/fair-use",
         title="Fair use charter for the EPO's online patent information products",
         retrieved_at="2026-08-31T12:00:00+00:00",
-        effective_at=None, expires_at=None, content_hash=None,
+        effective_at=None,
+        expires_at=None,
+        content_hash=None,
         anchor={"section": "Automated queries"},
-        authority="provider", interpretation_status="provider_human_readable",
+        authority="provider",
+        interpretation_status="provider_human_readable",
     )
     ops = PolicySourceRef(
         source_id="policy-source.epo.ops.service",
         uri="https://www.epo.org/en/searching-for-patents/data/web-services/ops",
         title="Open Patent Services (OPS)",
         retrieved_at="2026-08-31T12:00:00+00:00",
-        effective_at=None, expires_at=None, content_hash=None,
+        effective_at=None,
+        expires_at=None,
+        content_hash=None,
         anchor={"section": "Getting started / Conditions"},
-        authority="provider", interpretation_status="provider_human_readable",
+        authority="provider",
+        interpretation_status="provider_human_readable",
     )
 
     allowed = (
@@ -226,62 +251,123 @@ def epo_ops_policy_profile() -> SourcePolicyProfile:
     )
     rules: list[PolicyRule] = []
     for action in allowed:
-        rules.append(PolicyRule(
-            rule_id=f"epo-ops-allow-{action.value}", action=action,
-            effect=PolicyRuleEffect.PERMISSION, value=True,
-            asset_scope="ops_data", party_scope=None, purpose_scope=(), constraints={},
-            source_refs=("policy-source.epo.ops.terms",), priority_hint=10,
-        ))
-    rules.append(PolicyRule(
-        rule_id="epo-ops-deny-raw-redistribution",
-        action=AcquisitionAction.REDISTRIBUTE_RAW,
-        effect=PolicyRuleEffect.PROHIBITION, value=True,
-        asset_scope="ops_data_as_such", party_scope=None, purpose_scope=(), constraints={},
-        source_refs=("policy-source.epo.ops.terms",), priority_hint=100,
-    ))
-    rules.extend((
+        rules.append(
+            PolicyRule(
+                rule_id=f"epo-ops-allow-{action.value}",
+                action=action,
+                effect=PolicyRuleEffect.PERMISSION,
+                value=True,
+                asset_scope="ops_data",
+                party_scope=None,
+                purpose_scope=(),
+                constraints={},
+                source_refs=("policy-source.epo.ops.terms",),
+                priority_hint=10,
+            )
+        )
+    rules.append(
         PolicyRule(
-            rule_id="epo-ops-family-rate", action=AcquisitionAction.AUTOMATED_QUERY,
-            effect=PolicyRuleEffect.CONSTRAINT, value=1,
-            asset_scope="family_related_actions", party_scope=None, purpose_scope=(),
-            constraints={"unit": "requests", "window": "second"},
-            source_refs=("policy-source.epo.ops.fair-use",), priority_hint=20,
-        ),
-        PolicyRule(
-            rule_id="epo-ops-search-rate", action=AcquisitionAction.AUTOMATED_QUERY,
-            effect=PolicyRuleEffect.CONSTRAINT, value=10,
-            asset_scope="search_actions", party_scope=None, purpose_scope=(),
-            constraints={"unit": "searches", "window": "minute_per_ip"},
-            source_refs=("policy-source.epo.ops.fair-use",), priority_hint=20,
-        ),
-        PolicyRule(
-            rule_id="epo-ops-traffic-volume", action=AcquisitionAction.AUTOMATED_QUERY,
-            effect=PolicyRuleEffect.CONSTRAINT, value=1,
-            asset_scope="automated_traffic", party_scope=None, purpose_scope=(),
-            constraints={"unit": "Mbit", "window": "second"},
-            source_refs=("policy-source.epo.ops.fair-use",), priority_hint=20,
-        ),
-        PolicyRule(
-            rule_id="epo-ops-free-weekly-volume", action=AcquisitionAction.AUTOMATED_QUERY,
-            effect=PolicyRuleEffect.CONSTRAINT, value=4,
-            asset_scope="non_paying_user", party_scope=None, purpose_scope=(),
-            constraints={"unit": "GB", "window": "calendar_week_gmt"},
-            source_refs=("policy-source.epo.ops.service",), priority_hint=20,
-        ),
-    ))
+            rule_id="epo-ops-deny-raw-redistribution",
+            action=AcquisitionAction.REDISTRIBUTE_RAW,
+            effect=PolicyRuleEffect.PROHIBITION,
+            value=True,
+            asset_scope="ops_data_as_such",
+            party_scope=None,
+            purpose_scope=(),
+            constraints={},
+            source_refs=("policy-source.epo.ops.terms",),
+            priority_hint=100,
+        )
+    )
+    rules.extend(
+        (
+            PolicyRule(
+                rule_id="epo-ops-family-rate",
+                action=AcquisitionAction.AUTOMATED_QUERY,
+                effect=PolicyRuleEffect.CONSTRAINT,
+                value=1,
+                asset_scope="family_related_actions",
+                party_scope=None,
+                purpose_scope=(),
+                constraints={"unit": "requests", "window": "second"},
+                source_refs=("policy-source.epo.ops.fair-use",),
+                priority_hint=20,
+            ),
+            PolicyRule(
+                rule_id="epo-ops-search-rate",
+                action=AcquisitionAction.AUTOMATED_QUERY,
+                effect=PolicyRuleEffect.CONSTRAINT,
+                value=10,
+                asset_scope="search_actions",
+                party_scope=None,
+                purpose_scope=(),
+                constraints={"unit": "searches", "window": "minute_per_ip"},
+                source_refs=("policy-source.epo.ops.fair-use",),
+                priority_hint=20,
+            ),
+            PolicyRule(
+                rule_id="epo-ops-traffic-volume",
+                action=AcquisitionAction.AUTOMATED_QUERY,
+                effect=PolicyRuleEffect.CONSTRAINT,
+                value=1,
+                asset_scope="automated_traffic",
+                party_scope=None,
+                purpose_scope=(),
+                constraints={"unit": "Mbit", "window": "second"},
+                source_refs=("policy-source.epo.ops.fair-use",),
+                priority_hint=20,
+            ),
+            PolicyRule(
+                rule_id="epo-ops-free-weekly-volume",
+                action=AcquisitionAction.AUTOMATED_QUERY,
+                effect=PolicyRuleEffect.CONSTRAINT,
+                value=4,
+                asset_scope="non_paying_user",
+                party_scope=None,
+                purpose_scope=(),
+                constraints={"unit": "GB", "window": "calendar_week_gmt"},
+                source_refs=("policy-source.epo.ops.service",),
+                priority_hint=20,
+            ),
+        )
+    )
     tuple_rules = tuple(rules)
     return SourcePolicyProfile(
-        policy_id="policy.epo_ops.rest", version="1.0.0",
-        provider_id=EPO_OPS_PROVIDER_ID, surface_id=EPO_OPS_SURFACE_ID,
-        asset_scope="ops_data", rules=tuple_rules, policy_sources=(terms, fair, ops),
-        auth_requirements={"oauth2": True, "registration_required": True, "credential_profile": "oauth2.epo_ops"},
-        rate_limits={"family_requests_per_second": 1, "search_actions_per_minute_per_ip": 10, "max_traffic_mbit_per_second": 1, "free_gb_per_week": 4},
-        retention_rules={}, attribution_rules={},
-        redistribution_rules={"raw_data_public_redistribution": "prohibited", "data_as_part_of_products": "permitted_under_ops_terms"},
-        privacy_flags=(), observed_at="2026-08-31T12:00:00+00:00",
-        effective_at=None, expires_at=None, next_review_at="2026-09-30T00:00:00+00:00",
-        policy_hash=_policy_hash(tuple_rules), review_status="provider_documented",
-        metadata={"bulk_note": "Use EPO raw/bulk products for complete databases or very large datasets.", "rest_bulk_retrieval_limit_documents": 100},
+        policy_id="policy.epo_ops.rest",
+        version="1.0.0",
+        provider_id=EPO_OPS_PROVIDER_ID,
+        surface_id=EPO_OPS_SURFACE_ID,
+        asset_scope="ops_data",
+        rules=tuple_rules,
+        policy_sources=(terms, fair, ops),
+        auth_requirements={
+            "oauth2": True,
+            "registration_required": True,
+            "credential_profile": "oauth2.epo_ops",
+        },
+        rate_limits={
+            "family_requests_per_second": 1,
+            "search_actions_per_minute_per_ip": 10,
+            "max_traffic_mbit_per_second": 1,
+            "free_gb_per_week": 4,
+        },
+        retention_rules={},
+        attribution_rules={},
+        redistribution_rules={
+            "raw_data_public_redistribution": "prohibited",
+            "data_as_part_of_products": "permitted_under_ops_terms",
+        },
+        privacy_flags=(),
+        observed_at="2026-08-31T12:00:00+00:00",
+        effective_at=None,
+        expires_at=None,
+        next_review_at="2026-09-30T00:00:00+00:00",
+        policy_hash=_policy_hash(tuple_rules),
+        review_status="provider_documented",
+        metadata={
+            "bulk_note": "Use EPO raw/bulk products for complete databases or very large datasets.",
+            "rest_bulk_retrieval_limit_documents": 100,
+        },
     )
 
 
@@ -289,19 +375,39 @@ def register_epo_ops_policy(registry) -> None:
     registry.register(epo_ops_policy_profile())
 
 
-def register_epo_ops_provider(registry: ProviderRegistry, methods: MethodRegistrySnapshot) -> None:
+def register_epo_ops_provider(
+    registry: ProviderRegistry,
+    methods: MethodRegistrySnapshot,
+) -> None:
     provider = ProviderSpec(
-        provider_id=EPO_OPS_PROVIDER_ID, version=EPO_OPS_PROVIDER_VERSION,
-        kind=ProviderKind.PATENT, display_name="EPO Open Patent Services",
-        domains=("patent", "patent_intelligence"), languages=(), jurisdictions=(),
-        surfaces=(ProviderSurface(
-            surface_id=EPO_OPS_SURFACE_ID, kind=SurfaceKind.AUTHENTICATED_API,
-            endpoint_ref=EPO_OPS_BASE_URL,
-            capabilities=frozenset({"capability.lexical", "capability.taxonomy_filter", "capability.date_filter"}),
-            auth_profile="oauth2.epo_ops", policy_profile_refs=("policy.epo_ops.rest@1.0.0",),
-            static_limits={"search_actions_per_minute_per_ip": 10, "family_requests_per_second": 1, "free_gb_per_week": 4},
-            metadata={"structured_format": "xml", "oauth2": True},
-        ),), metadata={"official_source": True},
+        provider_id=EPO_OPS_PROVIDER_ID,
+        version=EPO_OPS_PROVIDER_VERSION,
+        kind=ProviderKind.PATENT,
+        display_name="EPO Open Patent Services",
+        domains=("patent", "patent_intelligence"),
+        languages=(),
+        jurisdictions=(),
+        surfaces=(
+            ProviderSurface(
+                surface_id=EPO_OPS_SURFACE_ID,
+                kind=SurfaceKind.AUTHENTICATED_API,
+                endpoint_ref=EPO_OPS_BASE_URL,
+                capabilities=frozenset({
+                    "capability.lexical",
+                    "capability.taxonomy_filter",
+                    "capability.date_filter",
+                }),
+                auth_profile="oauth2.epo_ops",
+                policy_profile_refs=("policy.epo_ops.rest@1.0.0",),
+                static_limits={
+                    "search_actions_per_minute_per_ip": 10,
+                    "family_requests_per_second": 1,
+                    "free_gb_per_week": 4,
+                },
+                metadata={"structured_format": "xml", "oauth2": True},
+            ),
+        ),
+        metadata={"official_source": True},
     )
     registry.register_provider(provider)
     for binding in (
@@ -309,16 +415,22 @@ def register_epo_ops_provider(registry: ProviderRegistry, methods: MethodRegistr
             binding_id="binding.lexical_search.epo_ops.v1",
             method_ref=VersionRef("method.lexical_search", "1.0.0"),
             provider_ref=VersionRef(EPO_OPS_PROVIDER_ID, EPO_OPS_PROVIDER_VERSION),
-            surface_id=EPO_OPS_SURFACE_ID, adapter_id=EPO_OPS_ADAPTER_ID,
-            adapter_version=EPO_OPS_ADAPTER_VERSION, enabled=True, parameter_mapping={},
+            surface_id=EPO_OPS_SURFACE_ID,
+            adapter_id=EPO_OPS_ADAPTER_ID,
+            adapter_version=EPO_OPS_ADAPTER_VERSION,
+            enabled=True,
+            parameter_mapping={},
             metadata={"endpoint": "/published-data/search"},
         ),
         MethodBinding(
             binding_id="binding.patent_classification.epo_ops.v1",
             method_ref=VersionRef("method.patent.classification_search", "1.0.0"),
             provider_ref=VersionRef(EPO_OPS_PROVIDER_ID, EPO_OPS_PROVIDER_VERSION),
-            surface_id=EPO_OPS_SURFACE_ID, adapter_id=EPO_OPS_ADAPTER_ID,
-            adapter_version=EPO_OPS_ADAPTER_VERSION, enabled=True, parameter_mapping={},
+            surface_id=EPO_OPS_SURFACE_ID,
+            adapter_id=EPO_OPS_ADAPTER_ID,
+            adapter_version=EPO_OPS_ADAPTER_VERSION,
+            enabled=True,
+            parameter_mapping={},
             metadata={"endpoint": "/published-data/search"},
         ),
     ):
@@ -342,20 +454,32 @@ class EpoOpsAdapter:
             close_client = True
         try:
             return await client.get(
-                f"{EPO_OPS_BASE_URL}/published-data/search", params=params,
-                headers={"Authorization": f"Bearer {token}", "Accept": "application/xml", "User-Agent": "ai-web-research/0.1 AUSI EPO-OPS"},
+                f"{EPO_OPS_BASE_URL}/published-data/search",
+                params=params,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Accept": "application/xml",
+                    "User-Agent": "ai-web-research/0.1 AUSI EPO-OPS",
+                },
             )
         finally:
             if close_client:
                 await client.aclose()
 
-    async def execute(self, action: AuthorizedAction, context: ExecutionContext) -> ProviderObservation:
+    async def execute(
+        self,
+        action: AuthorizedAction,
+        context: ExecutionContext,
+    ) -> ProviderObservation:
         raw = action.action
         if raw.provider_ref != VersionRef(EPO_OPS_PROVIDER_ID, EPO_OPS_PROVIDER_VERSION):
             raise EpoOpsAdapterError(f"wrong provider: {raw.provider_ref}")
         if raw.surface_id != EPO_OPS_SURFACE_ID:
             raise EpoOpsAdapterError(f"wrong surface: {raw.surface_id}")
-        if raw.binding_id not in {"binding.lexical_search.epo_ops.v1", "binding.patent_classification.epo_ops.v1"}:
+        if raw.binding_id not in {
+            "binding.lexical_search.epo_ops.v1",
+            "binding.patent_classification.epo_ops.v1",
+        }:
             raise EpoOpsAdapterError("unsupported EPO OPS binding")
 
         token = context.services.get("epo_ops_access_token")
@@ -378,7 +502,10 @@ class EpoOpsAdapter:
         else:
             raise EpoOpsAdapterError(f"unsupported method: {raw.method_ref}")
 
-        params = {"q": cql, "Range": _range(raw.parameters.get("range", "1-25"))}
+        params = {
+            "q": cql,
+            "Range": _range(raw.parameters.get("range", "1-25")),
+        }
         response = await self._get(context, params, token.strip())
         try:
             response.raise_for_status()
@@ -387,12 +514,28 @@ class EpoOpsAdapter:
             raise EpoOpsAdapterError(f"EPO OPS request/parse failed: {exc}") from exc
 
         docs = [node for node in root.iter() if _local(node.tag) == "exchange-document"]
-        artifacts = tuple(_parse_exchange_document(doc, index, raw.action_id) for index, doc in enumerate(docs, start=1))
+        artifacts = tuple(
+            _parse_exchange_document(doc, index, raw.action_id)
+            for index, doc in enumerate(docs, start=1)
+        )
         return ProviderObservation(
-            observation_id=f"{raw.action_id}:observation:epo_ops", action_id=raw.action_id,
-            provider_id=EPO_OPS_PROVIDER_ID, surface_id=EPO_OPS_SURFACE_ID,
-            status=ObservationStatus.SUCCEEDED, artifacts=artifacts, raw_ref=None,
-            result_count=len(artifacts), cost={}, latency_ms=None, continuation={}, diagnostics=(),
+            observation_id=f"{raw.action_id}:observation:epo_ops",
+            action_id=raw.action_id,
+            provider_id=EPO_OPS_PROVIDER_ID,
+            surface_id=EPO_OPS_SURFACE_ID,
+            status=ObservationStatus.SUCCEEDED,
+            artifacts=artifacts,
+            raw_ref=None,
+            result_count=len(artifacts),
+            cost={},
+            latency_ms=None,
+            continuation={},
+            diagnostics=(),
             occurred_at=str(context.services.get("clock") or raw.created_at),
-            metadata={"cql": cql, "range": params["Range"], "quota_headers": dict(getattr(response, "headers", {}) or {}), "credential_profile_id": action.credential_profile_id},
+            metadata={
+                "cql": cql,
+                "range": params["Range"],
+                "quota_headers": dict(getattr(response, "headers", {}) or {}),
+                "credential_profile_id": action.credential_profile_id,
+            },
         )
