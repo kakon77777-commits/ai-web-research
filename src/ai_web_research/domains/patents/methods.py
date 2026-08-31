@@ -50,3 +50,33 @@ def register_patent_methods(registry: SearchMethodRegistry) -> None:
             metadata={"domain": "patent_intelligence"},
         )
     )
+    registry.register(
+        SearchMethodSpec(
+            method_id="method.patent.family_resolve",
+            version="1.0.0",
+            availability=MethodAvailability.AVAILABLE,
+            aliases=("patent_family_resolve",),
+            purpose="Resolve an explicit patent family for a known publication.",
+            goals=frozenset({MethodGoal.RELATE, MethodGoal.RECONCILE}),
+            representations=frozenset({RepresentationKind.GRAPH, RepresentationKind.IDENTIFIER}),
+            directions=frozenset({SearchDirection.LATERAL}),
+            interaction_modes=frozenset({InteractionMode.ONE_SHOT}),
+            evidence_effects=frozenset({EvidenceEffect.RELATION, EvidenceEffect.METADATA}),
+            input_contract=ContractSpec(accepts=frozenset({ArtifactKind.CANDIDATE, ArtifactKind.DOCUMENT_REF})),
+            output_contract=ContractSpec(produces=frozenset({ArtifactKind.STRUCTURED_RECORD})),
+            parameter_schema={
+                "type": "object",
+                "properties": {"publication_number": {"type": "string"}},
+                "required": ["publication_number"],
+            },
+            required_capabilities=frozenset(),
+            preconditions=("publication_number_known",),
+            postconditions=("patent_family_resolved",),
+            failure_modes=(),
+            cost_prior={},
+            latency_prior={},
+            receipt_requirements=("publication_number", "family_type"),
+            stopping_implications=(),
+            metadata={"domain": "patent_intelligence", "family_type": "INPADOC_EXTENDED"},
+        )
+    )
