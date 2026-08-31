@@ -45,12 +45,14 @@ class TrustedExecutionRuntime:
         policies: PolicyRegistrySnapshot,
         evaluator: DeterministicPolicyEvaluator | None = None,
         store=None,
+        receipt_recorder=None,
     ) -> None:
         self.execution = execution
         self.providers = providers
         self.policies = policies
         self.evaluator = evaluator or DeterministicPolicyEvaluator()
         self.store = store
+        self.receipt_recorder = receipt_recorder
 
     async def execute(
         self,
@@ -74,6 +76,12 @@ class TrustedExecutionRuntime:
             robots=robots,
         )
         if not evaluation.authorization.is_executable:
+            if self.receipt_recorder is not None:
+                self.receipt_recorder.record_rejected(
+                    action=action,
+                    evaluation=evaluation,
+                    occurred_at=policy_context.timestamp,
+                )
             raise TrustedExecutionRejected(evaluation)
 
         authorized = AuthorizedAction(
@@ -82,7 +90,17 @@ class TrustedExecutionRuntime:
             credential_profile_id=credential_profile_id,
             usage_seed=evaluation.usage_seed,
         )
-        observation = await self.execution.execute(authorized, context)
+        try:
+            observation = await self.execution.execute(authorized, context)
+        except Exception as exc:
+            if self.receipt_recorder is not None:
+                self.receipt_recorder.record_failed(
+                    action=action,
+                    evaluation=evaluation,
+                    occurred_at=str(context.services.get("clock") or policy_context.timestamp),
+                    exception=exc,
+                )
+            raise
         materialized_assets = materialize_acquired_assets(authorized, observation)
 
         candidate_bundles: list[CandidateEvidenceMaterialization] = []
@@ -198,11 +216,20 @@ class TrustedExecutionRuntime:
                         created_at=projection.created_at,
                     )
 
+        final_gaps = tuple(gap_projections)
+        if self.receipt_recorder is not None:
+            self.receipt_recorder.record_success(
+                action=action,
+                evaluation=evaluation,
+                observation=observation,
+                gap_projections=final_gaps,
+            )
+
         return TrustedExecutionResult(
             policy_evaluation=evaluation,
             authorized_action=authorized,
             observation=observation,
             materialized_assets=materialized_assets,
             candidate_bundles=tuple(candidate_bundles),
-            gap_projections=tuple(gap_projections),
+            gap_projections=final_gaps,
         )
