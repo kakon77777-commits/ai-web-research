@@ -205,3 +205,15 @@ class KnowledgeStore:
         if row is None:
             raise KeyError(state_id)
         return _state(json.loads(row["payload_json"]))
+
+    def count_claim_revisions(self) -> int:
+        row = self._conn.execute(
+            "SELECT COUNT(*) AS n FROM canonical_claim_revisions"
+        ).fetchone()
+        return int(row["n"])
+
+    def count_event_revisions(self) -> int:
+        row = self._conn.execute(
+            "SELECT COUNT(*) AS n FROM canonical_event_revisions"
+        ).fetchone()
+        return int(row["n"])
