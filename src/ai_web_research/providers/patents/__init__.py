@@ -1,0 +1,1 @@
+"""Patent provider adapters."""

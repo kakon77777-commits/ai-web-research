@@ -1,0 +1,1 @@
+"""Patent Intelligence domain pack."""
