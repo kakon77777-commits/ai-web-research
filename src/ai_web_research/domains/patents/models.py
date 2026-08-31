@@ -113,6 +113,7 @@ class PatentFamilyIdentity:
     definition_version: str | None
     member_publications: tuple[str, ...]
     priority_refs: tuple[str, ...]
+    priority_dates: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
