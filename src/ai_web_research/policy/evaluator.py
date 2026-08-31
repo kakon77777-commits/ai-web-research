@@ -32,12 +32,12 @@ def _parse_time(value: str | None) -> dt.datetime | None:
 class DeterministicPolicyEvaluator:
     evaluator_version = "ausi-policy/0.1.0"
 
-    def _applies(self, rule: PolicyRule, context: PolicyContext) -> bool:
+    def _scope_applies(self, rule: PolicyRule, context: PolicyContext) -> bool:
         if rule.purpose_scope and context.purpose not in rule.purpose_scope:
             return False
         if rule.party_scope is not None and rule.party_scope != context.party_profile_id:
             return False
-        return rule.action in context.requested_actions
+        return True
 
     def _stale_high_risk(
         self, profiles: tuple[SourcePolicyProfile, ...], context: PolicyContext
@@ -103,15 +103,19 @@ class DeterministicPolicyEvaluator:
             rule
             for profile in profiles
             for rule in profile.rules
-            if self._applies(rule, context)
+            if self._scope_applies(rule, context)
         ]
-        prohibitions = [r for r in applicable if r.effect is PolicyRuleEffect.PROHIBITION]
-        permissions = [r for r in applicable if r.effect is PolicyRuleEffect.PERMISSION]
-        duties = [r for r in applicable if r.effect is PolicyRuleEffect.DUTY]
-        constraints = [r for r in applicable if r.effect is PolicyRuleEffect.CONSTRAINT]
+        all_prohibitions = [r for r in applicable if r.effect is PolicyRuleEffect.PROHIBITION]
+        all_permissions = [r for r in applicable if r.effect is PolicyRuleEffect.PERMISSION]
+        all_duties = [r for r in applicable if r.effect is PolicyRuleEffect.DUTY]
+        all_constraints = [r for r in applicable if r.effect is PolicyRuleEffect.CONSTRAINT]
+
+        requested = set(context.requested_actions)
+        prohibitions = [r for r in all_prohibitions if r.action in requested]
+        permissions = [r for r in all_permissions if r.action in requested]
 
         if prohibitions:
-            denied = tuple(sorted({r.action for r in prohibitions}, key=str))
+            denied = tuple(sorted({r.action for r in all_prohibitions}, key=str))
             auth = AuthorizationResult(
                 PolicyDecision.DENY,
                 policy_refs=refs,
@@ -119,19 +123,78 @@ class DeterministicPolicyEvaluator:
             )
             return PolicyEvaluation(
                 auth,
-                UsageEnvelopeSeed(prohibitions=denied, policy_refs=refs),
+                UsageEnvelopeSeed(
+                    permissions=tuple(sorted({r.action for r in all_permissions}, key=str)),
+                    prohibitions=denied,
+                    obligations=tuple(
+                        Obligation(
+                            obligation_id=rule.rule_id,
+                            kind=str(rule.value),
+                            parameters=dict(rule.constraints),
+                            persists_downstream=True,
+                            policy_refs=tuple(rule.source_refs),
+                        )
+                        for rule in all_duties
+                    ),
+                    limits=tuple(
+                        PolicyLimit(
+                            limit_id=rule.rule_id,
+                            kind=rule.rule_id,
+                            value=rule.value,
+                            unit=str(rule.constraints.get("unit")) if rule.constraints.get("unit") is not None else None,
+                            window=str(rule.constraints.get("window")) if rule.constraints.get("window") is not None else None,
+                            policy_refs=tuple(rule.source_refs),
+                        )
+                        for rule in all_constraints
+                    ),
+                    policy_refs=refs,
+                ),
                 robots.robots_id if robots else None,
             )
 
-        if not permissions:
+        permitted_requested = {r.action for r in permissions}
+        missing_permissions = tuple(
+            sorted(
+                (requested_action for requested_action in requested if requested_action not in permitted_requested),
+                key=lambda action: action.value,
+            )
+        )
+        if missing_permissions:
             auth = AuthorizationResult(
                 PolicyDecision.UNKNOWN,
                 policy_refs=refs,
-                reason_codes=("NO_EXPLICIT_PERMISSION",),
+                reason_codes=tuple(
+                    f"MISSING_PERMISSION:{action.value}" for action in missing_permissions
+                ),
             )
             return PolicyEvaluation(
                 auth,
-                UsageEnvelopeSeed(policy_refs=refs),
+                UsageEnvelopeSeed(
+                    permissions=tuple(sorted({r.action for r in all_permissions}, key=str)),
+                    prohibitions=tuple(sorted({r.action for r in all_prohibitions}, key=str)),
+                    obligations=tuple(
+                        Obligation(
+                            obligation_id=rule.rule_id,
+                            kind=str(rule.value),
+                            parameters=dict(rule.constraints),
+                            persists_downstream=True,
+                            policy_refs=tuple(rule.source_refs),
+                        )
+                        for rule in all_duties
+                    ),
+                    limits=tuple(
+                        PolicyLimit(
+                            limit_id=rule.rule_id,
+                            kind=rule.rule_id,
+                            value=rule.value,
+                            unit=str(rule.constraints.get("unit")) if rule.constraints.get("unit") is not None else None,
+                            window=str(rule.constraints.get("window")) if rule.constraints.get("window") is not None else None,
+                            policy_refs=tuple(rule.source_refs),
+                        )
+                        for rule in all_constraints
+                    ),
+                    policy_refs=refs,
+                ),
                 robots.robots_id if robots else None,
             )
 
@@ -143,7 +206,7 @@ class DeterministicPolicyEvaluator:
                 persists_downstream=True,
                 policy_refs=tuple(rule.source_refs),
             )
-            for rule in duties
+            for rule in all_duties
         )
         limit_objs = tuple(
             PolicyLimit(
@@ -154,9 +217,10 @@ class DeterministicPolicyEvaluator:
                 window=str(rule.constraints.get("window")) if rule.constraints.get("window") is not None else None,
                 policy_refs=tuple(rule.source_refs),
             )
-            for rule in constraints
+            for rule in all_constraints
         )
-        granted = tuple(sorted({r.action for r in permissions}, key=str))
+        granted = tuple(sorted({r.action for r in all_permissions}, key=str))
+        prohibited = tuple(sorted({r.action for r in all_prohibitions}, key=str))
         decision = (
             PolicyDecision.ALLOW_WITH_OBLIGATIONS
             if obligation_objs or limit_objs
@@ -171,6 +235,7 @@ class DeterministicPolicyEvaluator:
         )
         seed = UsageEnvelopeSeed(
             permissions=granted,
+            prohibitions=prohibited,
             obligations=obligation_objs,
             limits=limit_objs,
             policy_refs=refs,
