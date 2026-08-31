@@ -62,7 +62,7 @@ class DeterministicPlanner:
             guards=(),
             expected_effects=("candidate_set_created",),
             created_by=self.planner_id,
-            created_at="1970-01-01T00:00:00+00:00",
+            created_at=state.planned_at,
         )
         node = ActionNode(node_id=f"{state.epoch_id}:node:1", action=action)
         return SearchPlan(

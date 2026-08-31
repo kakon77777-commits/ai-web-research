@@ -125,6 +125,7 @@ class StopAction:
 class SearchState:
     task_id: str
     epoch_id: str
+    planned_at: str
     active_artifacts: list[ArtifactRef]
     candidate_refs: list[str]
     evidence_refs: list[str]

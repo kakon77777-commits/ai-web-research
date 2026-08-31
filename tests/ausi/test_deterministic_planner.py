@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from ai_web_research.core.types import RiskClass, SearchIntent, SearchState, SearchTask
+from ai_web_research.core.types import RiskClass, SearchIntent, SearchState, SearchTask, VersionRef
 from ai_web_research.methods.builtin import register_builtin_methods
 from ai_web_research.methods.registry import SearchMethodRegistry
 from ai_web_research.methods.spec import MethodAvailability
@@ -11,6 +11,7 @@ from ai_web_research.planning.planner import DeterministicPlanner, PlanningError
 from ai_web_research.planning.validator import PlanValidator
 from ai_web_research.providers.builtin import register_builtin_providers
 from ai_web_research.providers.registry import ProviderRegistry
+from ai_web_research.providers.spec import SurfaceKind
 
 
 def task(intent: SearchIntent) -> SearchTask:
@@ -39,7 +40,7 @@ def state() -> SearchState:
         epoch_id="epoch-1",
         active_artifacts=[], candidate_refs=[], evidence_refs=[], open_gap_refs=[],
         completed_action_ids=[], failed_action_ids=[], budget_state={"remaining_actions": 1},
-        coverage_state={}, metadata={},
+        coverage_state={}, metadata={}, planned_at="2026-08-31T07:00:00+00:00",
     )
 
 
@@ -71,6 +72,8 @@ def test_builtin_method_availability_matches_current_repository_capabilities():
     assert actual == expected
     identity = methods.latest("method.identity_search")
     assert identity.required_capabilities == frozenset({"capability.lexical", "capability.identity_fold"})
+    for method_id in ("method.crawl_discovery", "method.fetch_document", "method.extract_candidate_evidence"):
+        assert methods.latest(method_id).parameter_schema.get("required", []) == []
 
 
 def test_identity_task_plans_local_identity_search_and_validates_cleanly():
@@ -84,6 +87,9 @@ def test_identity_task_plans_local_identity_search_and_validates_cleanly():
     assert node.action.method_ref.id == "method.identity_search"
     assert node.action.provider_ref.id == "provider.local_corpus"
     assert node.action.parameters == {"query": "find Alpha Engine"}
+    assert node.action.created_at == "2026-08-31T07:00:00+00:00"
+    crawler = providers.get_provider(VersionRef("provider.crawler", "1.0.0"))
+    assert crawler.surfaces[0].kind is SurfaceKind.WEB_UI
     result = PlanValidator().validate(plan, methods.snapshot(), providers.snapshot())
     assert result.valid, result.issues
 

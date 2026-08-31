@@ -1,3 +1,4 @@
+from dataclasses import replace
 import pytest
 
 from ai_web_research.core.types import ArtifactKind, VersionRef
@@ -132,3 +133,12 @@ def test_binding_rejects_missing_required_capability():
     providers.register_provider(provider_spec(frozenset({"capability.lexical"})))
     with pytest.raises(BindingValidationError, match="capabil"):
         providers.register_binding(binding(), methods.snapshot())
+
+
+def test_snapshot_hash_changes_when_provider_payload_changes():
+    left = ProviderRegistry()
+    right = ProviderRegistry()
+    base = provider_spec()
+    left.register_provider(base)
+    right.register_provider(replace(base, display_name="Changed provider semantics"))
+    assert left.snapshot().snapshot_id != right.snapshot().snapshot_id

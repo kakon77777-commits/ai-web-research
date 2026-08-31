@@ -38,11 +38,15 @@ def _spec(
         evidence_effects=frozenset({evidence_effect}),
         input_contract=ContractSpec(accepts=accepts),
         output_contract=ContractSpec(produces=produces),
-        parameter_schema={
-            "type": "object",
-            "properties": {"query": {"type": "string"}},
-            "required": ["query"],
-        },
+        parameter_schema=(
+            {
+                "type": "object",
+                "properties": {"query": {"type": "string"}},
+                "required": ["query"],
+            }
+            if ArtifactKind.QUERY in accepts
+            else {"type": "object", "properties": {}}
+        ),
         required_capabilities=(capability if isinstance(capability, frozenset) else frozenset({capability})),
         preconditions=(),
         postconditions=(),

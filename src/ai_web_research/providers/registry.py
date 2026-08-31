@@ -2,10 +2,27 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from hashlib import sha256
+from json import dumps
 
 from ai_web_research.core.types import VersionRef
 from ai_web_research.methods.registry import MethodRegistrySnapshot
 from .spec import MethodBinding, ProviderSpec, ProviderSurface
+
+
+def _canonical(value):
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return value
+    if hasattr(value, "value"):
+        return value.value
+    if isinstance(value, dict):
+        return {str(k): _canonical(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_canonical(v) for v in value]
+    if isinstance(value, (set, frozenset, tuple)):
+        return sorted((_canonical(v) for v in value), key=str)
+    if hasattr(value, "__dataclass_fields__"):
+        return {name: _canonical(getattr(value, name)) for name in value.__dataclass_fields__}
+    raise TypeError(type(value).__name__)
 
 
 class ProviderRegistryVersionConflict(ValueError):
@@ -101,11 +118,14 @@ class ProviderRegistry:
     def snapshot(self) -> ProviderRegistrySnapshot:
         providers = tuple(sorted(self._providers.values(), key=lambda p: (p.provider_id, p.version)))
         bindings = tuple(sorted(self._bindings.values(), key=lambda b: b.binding_id))
-        key = "\n".join(
-            [*(f"P:{p.provider_id}@{p.version}" for p in providers), *(f"B:{b.binding_id}" for b in bindings)]
-        )
+        encoded = dumps(
+            {"providers": providers, "bindings": bindings},
+            default=_canonical,
+            ensure_ascii=False,
+            sort_keys=True,
+        ).encode("utf-8")
         return ProviderRegistrySnapshot(
-            snapshot_id=sha256(key.encode("utf-8")).hexdigest(),
+            snapshot_id=sha256(encoded).hexdigest(),
             providers=providers,
             bindings=bindings,
         )

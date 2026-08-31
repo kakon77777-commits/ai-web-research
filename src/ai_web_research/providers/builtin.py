@@ -20,7 +20,7 @@ def register_builtin_providers(registry: ProviderRegistry, methods: MethodRegist
         provider_id="provider.crawler", version="1.0.0", kind=ProviderKind.CRAWLER,
         display_name="Legacy crawler", domains=(), languages=(), jurisdictions=(),
         surfaces=(ProviderSurface(
-            surface_id="surface.crawler.browser", kind=SurfaceKind.PUBLIC_API, endpoint_ref=None,
+            surface_id="surface.crawler.browser", kind=SurfaceKind.WEB_UI, endpoint_ref=None,
             capabilities=frozenset({"capability.fetch_url", "capability.crawl_links"}),
             auth_profile=None, policy_profile_refs=(), static_limits={}, metadata={},
         ),), metadata={},
