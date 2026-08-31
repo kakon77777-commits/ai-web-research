@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Mapping
+from typing import TYPE_CHECKING, Mapping
+
+if TYPE_CHECKING:
+    from ai_web_research.policy.models import UsageEnvelopeSeed
 
 from ai_web_research.core.types import ArtifactRef, JsonValue, SearchAction
 
@@ -36,6 +39,7 @@ class AuthorizedAction:
     action: SearchAction
     authorization: AuthorizationResult
     credential_profile_id: str | None = None
+    usage_seed: "UsageEnvelopeSeed | None" = None
 
 
 @dataclass
