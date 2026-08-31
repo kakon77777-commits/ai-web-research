@@ -12,6 +12,21 @@ class PatentFamilyFoldResult:
     unresolved: tuple[PatentCandidate, ...]
 
 
+def _priority_dates(meta: dict) -> tuple[str, ...]:
+    explicit = tuple(str(x) for x in (meta.get("priority_dates") or []))
+    if explicit:
+        return explicit
+    dates: list[str] = []
+    for ref in meta.get("priority_refs") or []:
+        value = str(ref)
+        if "@" not in value:
+            continue
+        date = value.rsplit("@", 1)[-1]
+        if date and date not in dates:
+            dates.append(date)
+    return tuple(dates)
+
+
 def family_from_observation(observation: ProviderObservation) -> PatentFamilyIdentity:
     for artifact in observation.artifacts:
         meta = artifact.metadata
@@ -25,7 +40,7 @@ def family_from_observation(observation: ProviderObservation) -> PatentFamilyIde
             definition_version=str(meta.get("definition_version") or "OPS-3.2"),
             member_publications=tuple(str(x) for x in (meta.get("member_publications") or [])),
             priority_refs=tuple(str(x) for x in (meta.get("priority_refs") or [])),
-            priority_dates=tuple(str(x) for x in (meta.get("priority_dates") or [])),
+            priority_dates=_priority_dates(meta),
         )
     raise ValueError("observation does not contain an EPO family record")
 
