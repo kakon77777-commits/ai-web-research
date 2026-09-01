@@ -15,6 +15,9 @@ MAX_SIGNALS = 128
 MAX_JSON_NODES = 2_048
 MIN_QUOTE_CHARS = 12
 MAX_QUOTE_CHARS = 240
+MAX_ATTRIBUTION_CONTEXT = 80
+BLOCK_TAGS = {"p", "li", "div", "section", "article", "h1", "h2", "h3", "h4", "h5", "h6"}
+EXCLUDED_ATTRIBUTION_TAGS = {"nav", "header", "footer", "aside"}
 
 _WS = re.compile(r"\s+")
 
@@ -67,6 +70,9 @@ class _SignalParser(HTMLParser):
         self.counts: dict[str, int] = {}
         self.quote_stack: list[dict[str, Any]] = []
         self.jsonld_stack: list[dict[str, Any]] = []
+        self.anchor_stack: list[dict[str, Any]] = []
+        self.block_context = ""
+        self.excluded_attribution_depth = 0
         self._signal_limit_warned = False
 
     def _next(self, name: str) -> int:
@@ -95,9 +101,23 @@ class _SignalParser(HTMLParser):
         if normalized:
             self._emit(kind, normalized, locator)
 
+    def _append_context(self, data: str) -> None:
+        text = _space(data)
+        if not text:
+            return
+        combined = _space(f"{self.block_context} {text}")
+        self.block_context = combined[-MAX_ATTRIBUTION_CONTEXT:]
+
+    def _context_has_attribution_marker(self) -> bool:
+        return bool(re.search(r"(?:according to|via|source\s*:)\s*$", self.block_context, re.IGNORECASE))
+
     def handle_starttag(self, tag: str, attrs) -> None:
         amap = {str(k).lower(): v for k, v in attrs if k}
         tag = tag.lower()
+        if tag in BLOCK_TAGS:
+            self.block_context = ""
+        if tag in EXCLUDED_ATTRIBUTION_TAGS:
+            self.excluded_attribution_depth += 1
         if tag == "link":
             index = self._next("link")
             rel = {part.lower() for part in str(amap.get("rel") or "").split()}
@@ -121,6 +141,12 @@ class _SignalParser(HTMLParser):
             if isinstance(cite, str):
                 self._emit_url(PageSourceSignalKind.CITATION_URL, cite, f"{tag}[{index}]:cite")
             self.quote_stack.append({"tag": tag, "index": index, "parts": []})
+        elif tag == "a":
+            index = self._next("a")
+            href = amap.get("href")
+            resolved = _normalize_url(self.page.url, href) if isinstance(href, str) else None
+            attributed = resolved is not None and self.excluded_attribution_depth == 0 and self._context_has_attribution_marker()
+            self.anchor_stack.append({"index": index, "url": resolved, "attributed": attributed, "parts": []})
         elif tag == "script" and str(amap.get("type") or "").lower() == "application/ld+json":
             index = self._next("jsonld")
             self.jsonld_stack.append({"index": index, "parts": []})
@@ -128,11 +154,27 @@ class _SignalParser(HTMLParser):
     def handle_data(self, data: str) -> None:
         if self.quote_stack:
             self.quote_stack[-1]["parts"].append(data)
+        if self.anchor_stack:
+            self.anchor_stack[-1]["parts"].append(data)
         if self.jsonld_stack:
             self.jsonld_stack[-1]["parts"].append(data)
+            return
+        if self.excluded_attribution_depth == 0:
+            self._append_context(data)
 
     def handle_endtag(self, tag: str) -> None:
         tag = tag.lower()
+        if tag == "a" and self.anchor_stack:
+            ctx = self.anchor_stack.pop()
+            if ctx["attributed"] and ctx["url"]:
+                self._emit(PageSourceSignalKind.ATTRIBUTED_URL, ctx["url"], f"a[{ctx['index']}]:attribution")
+                entity = _space(" ".join(ctx["parts"]))
+                if 2 <= len(entity) <= 120:
+                    self._emit(PageSourceSignalKind.ATTRIBUTION_ENTITY, entity, f"a[{ctx['index']}]:text")
+        if tag in EXCLUDED_ATTRIBUTION_TAGS and self.excluded_attribution_depth > 0:
+            self.excluded_attribution_depth -= 1
+        if tag in BLOCK_TAGS:
+            self.block_context = ""
         if tag in {"blockquote", "q"} and self.quote_stack:
             ctx = self.quote_stack.pop()
             if ctx["tag"] != tag:
