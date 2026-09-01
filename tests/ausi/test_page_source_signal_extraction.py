@@ -56,3 +56,18 @@ def test_signal_cap_is_deterministic_and_reports_warning():
     assert result.signals[0].value == "https://source.example/0"
     assert result.signals[-1].value == "https://source.example/127"
     assert "signal_limit_reached" in result.warnings
+
+
+def test_linked_attribution_markers_emit_trace_only_signals():
+    html = '''<p>According to <a href="https://official.example/post">Official Lab</a>, the model shipped.</p><p>via <a href="/wire">Wire Source</a></p><p>source: <a href="https://source.example/item">Source Desk</a></p>'''
+    result = extract_page_source_signals(_page(html))
+    assert _values(result, PageSourceSignalKind.ATTRIBUTED_URL) == ["https://official.example/post", "https://media.example/wire", "https://source.example/item"]
+    assert _values(result, PageSourceSignalKind.ATTRIBUTION_ENTITY) == ["Official Lab", "Wire Source", "Source Desk"]
+
+
+def test_generic_or_distant_links_do_not_become_attribution_signals():
+    padding = "x" * 90
+    html = f'''<p><a href="https://generic.example/">Read more</a></p><p>According to {padding}<a href="https://too-far.example/">Far Source</a></p><nav>via <a href="https://nav.example/">Navigation</a></nav><p>Related: <a href="https://related.example/">Another article</a></p>'''
+    result = extract_page_source_signals(_page(html))
+    assert _values(result, PageSourceSignalKind.ATTRIBUTED_URL) == []
+    assert _values(result, PageSourceSignalKind.ATTRIBUTION_ENTITY) == []
