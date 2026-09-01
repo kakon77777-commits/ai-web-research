@@ -14,7 +14,7 @@ from ai_web_research.policy.models import PolicyContext
 from ai_web_research.providers.registry import ProviderRegistrySnapshot
 from ai_web_research.providers.spec import MethodBinding
 
-from .trace import TraceAction, TraceActionKind
+from .trace import ReverseTracePlan, TraceAction, TraceActionKind
 
 LEXICAL_METHOD = VersionRef("method.lexical_search", "1.0.0")
 RUNNER_ID = "reverse_trace.runner.v0.1"
@@ -60,6 +60,30 @@ class TraceSearchExecution:
     discovery_batch: DiscoveryBatch | None
     observation_id: str | None
     error_code: str | None
+
+
+@dataclass(frozen=True)
+class TraceExecutionBatch:
+    source_id: str
+    executions: tuple[TraceSearchExecution, ...]
+    skipped_action_ids: tuple[str, ...]
+    complete: bool
+
+    @property
+    def failure_count(self) -> int:
+        return sum(
+            1
+            for execution in self.executions
+            if execution.status is not TraceExecutionStatus.SUCCEEDED
+        )
+
+    @property
+    def candidate_count(self) -> int:
+        return sum(
+            len(execution.discovery_batch.candidates)
+            for execution in self.executions
+            if execution.discovery_batch is not None
+        )
 
 
 def select_lexical_binding(
@@ -228,4 +252,104 @@ async def execute_trace_search_action(
         discovery_batch=discovery_batch,
         observation_id=observation.observation_id,
         error_code=None,
+    )
+
+
+async def execute_reverse_trace_plan(
+    plan: ReverseTracePlan,
+    *,
+    providers: ProviderRegistrySnapshot,
+    trusted_runtime: Any,
+    execution_context: ExecutionContext,
+    policy_context: PolicyContext,
+    task_id: str,
+    epoch_id: str,
+    created_at: str,
+    provider_preferences: tuple[str, ...] = (),
+    top_k: int = 10,
+    credential_profile_id: str | None = None,
+) -> TraceExecutionBatch:
+    searchable = tuple(
+        action
+        for action in plan.actions
+        if action.kind
+        in {TraceActionKind.EXACT_QUOTE_SEARCH, TraceActionKind.ENTITY_SEARCH}
+    )
+    skipped = tuple(
+        action.action_id
+        for action in plan.actions
+        if action.kind is TraceActionKind.DIRECT_PREDECESSOR
+    )
+    if not searchable:
+        return TraceExecutionBatch(
+            source_id=plan.source_id,
+            executions=(),
+            skipped_action_ids=skipped,
+            complete=True,
+        )
+
+    try:
+        binding = select_lexical_binding(
+            providers,
+            provider_preferences=provider_preferences,
+        )
+    except TraceExecutionUnavailable:
+        executions = tuple(
+            TraceSearchExecution(
+                source_id=plan.source_id,
+                trace_action_id=trace.action_id,
+                trace_kind=trace.kind,
+                search_action_id=f"{trace.action_id}:unavailable",
+                provider_id="",
+                binding_id="",
+                status=TraceExecutionStatus.UNAVAILABLE,
+                discovery_batch=None,
+                observation_id=None,
+                error_code="TraceExecutionUnavailable",
+            )
+            for trace in searchable
+        )
+        return TraceExecutionBatch(
+            source_id=plan.source_id,
+            executions=executions,
+            skipped_action_ids=skipped,
+            complete=False,
+        )
+
+    executions: list[TraceSearchExecution] = []
+    for trace in plan.actions:
+        if trace.kind not in {
+            TraceActionKind.EXACT_QUOTE_SEARCH,
+            TraceActionKind.ENTITY_SEARCH,
+        }:
+            continue
+        compiled = compile_trace_search_action(
+            source_id=plan.source_id,
+            trace=trace,
+            binding=binding,
+            task_id=task_id,
+            epoch_id=epoch_id,
+            created_at=created_at,
+            top_k=top_k,
+        )
+        executions.append(
+            await execute_trace_search_action(
+                compiled,
+                trusted_runtime=trusted_runtime,
+                execution_context=execution_context,
+                policy_context=policy_context,
+                credential_profile_id=credential_profile_id,
+                fail_fast=False,
+            )
+        )
+
+    result_tuple = tuple(executions)
+    return TraceExecutionBatch(
+        source_id=plan.source_id,
+        executions=result_tuple,
+        skipped_action_ids=skipped,
+        complete=all(
+            execution.status is TraceExecutionStatus.SUCCEEDED
+            for execution in result_tuple
+        ),
     )
