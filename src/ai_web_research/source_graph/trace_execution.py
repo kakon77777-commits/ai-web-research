@@ -1,9 +1,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 from hashlib import sha256
+from typing import Any
 
 from ai_web_research.core.types import ActionKind, ArtifactKind, ArtifactRef, SearchAction, VersionRef
+from ai_web_research.discovery.models import DiscoveryBatch
+from ai_web_research.discovery.normalize import normalize_discovery_observation
+from ai_web_research.execution.models import ExecutionContext
+from ai_web_research.execution.trusted import TrustedExecutionRejected
+from ai_web_research.policy.models import PolicyContext
 from ai_web_research.providers.registry import ProviderRegistrySnapshot
 from ai_web_research.providers.spec import MethodBinding
 
@@ -32,6 +39,27 @@ class TraceSearchAction:
     trace_kind: TraceActionKind
     signal: str
     search_action: SearchAction
+
+
+class TraceExecutionStatus(StrEnum):
+    SUCCEEDED = "succeeded"
+    POLICY_REJECTED = "policy_rejected"
+    PROVIDER_FAILED = "provider_failed"
+    UNAVAILABLE = "unavailable"
+
+
+@dataclass(frozen=True)
+class TraceSearchExecution:
+    source_id: str
+    trace_action_id: str
+    trace_kind: TraceActionKind
+    search_action_id: str
+    provider_id: str
+    binding_id: str
+    status: TraceExecutionStatus
+    discovery_batch: DiscoveryBatch | None
+    observation_id: str | None
+    error_code: str | None
 
 
 def select_lexical_binding(
@@ -136,4 +164,68 @@ def compile_trace_search_action(
         trace_kind=trace.kind,
         signal=trace.signal,
         search_action=search_action,
+    )
+
+
+async def execute_trace_search_action(
+    compiled: TraceSearchAction,
+    *,
+    trusted_runtime: Any,
+    execution_context: ExecutionContext,
+    policy_context: PolicyContext,
+    credential_profile_id: str | None = None,
+    fail_fast: bool = True,
+) -> TraceSearchExecution:
+    action = compiled.search_action
+    try:
+        trusted_result = await trusted_runtime.execute(
+            action,
+            execution_context,
+            policy_context,
+            credential_profile_id=credential_profile_id,
+        )
+    except TrustedExecutionRejected as exc:
+        if fail_fast:
+            raise
+        return TraceSearchExecution(
+            source_id=compiled.source_id,
+            trace_action_id=compiled.trace_action_id,
+            trace_kind=compiled.trace_kind,
+            search_action_id=action.action_id,
+            provider_id=action.provider_ref.id,
+            binding_id=action.binding_id,
+            status=TraceExecutionStatus.POLICY_REJECTED,
+            discovery_batch=None,
+            observation_id=None,
+            error_code=type(exc).__name__,
+        )
+    except Exception as exc:
+        if fail_fast:
+            raise
+        return TraceSearchExecution(
+            source_id=compiled.source_id,
+            trace_action_id=compiled.trace_action_id,
+            trace_kind=compiled.trace_kind,
+            search_action_id=action.action_id,
+            provider_id=action.provider_ref.id,
+            binding_id=action.binding_id,
+            status=TraceExecutionStatus.PROVIDER_FAILED,
+            discovery_batch=None,
+            observation_id=None,
+            error_code=type(exc).__name__,
+        )
+
+    observation = trusted_result.observation
+    discovery_batch = normalize_discovery_observation(observation)
+    return TraceSearchExecution(
+        source_id=compiled.source_id,
+        trace_action_id=compiled.trace_action_id,
+        trace_kind=compiled.trace_kind,
+        search_action_id=action.action_id,
+        provider_id=action.provider_ref.id,
+        binding_id=action.binding_id,
+        status=TraceExecutionStatus.SUCCEEDED,
+        discovery_batch=discovery_batch,
+        observation_id=observation.observation_id,
+        error_code=None,
     )
