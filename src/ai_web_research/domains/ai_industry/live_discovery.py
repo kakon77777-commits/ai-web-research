@@ -258,3 +258,59 @@ async def expand_ai_daily_reverse_trace(
         fetched_result=fetched_result,
         trace_execution_batches=tuple(batches),
     )
+
+
+from typing import Callable
+
+from ai_web_research.source_graph.candidate_batch import VerifiedTraceGraphUpdate, verify_trace_candidate_batches
+
+
+@dataclass(frozen=True)
+class AIDailyVerifiedTraceResult:
+    reverse_trace_result: AIDailyTraceExpansionResult
+    verification_update: VerifiedTraceGraphUpdate
+
+
+async def verify_ai_daily_reverse_trace(
+    reverse_trace_result: AIDailyTraceExpansionResult,
+    *,
+    source_nodes: tuple[SourceNode, ...],
+    tracked_source_ids: tuple[str, ...],
+    providers: ProviderRegistrySnapshot,
+    trusted_runtime: Any,
+    execution_context: ExecutionContext,
+    policy_context: PolicyContext,
+    reader: Callable[[str], str],
+    task_id: str,
+    epoch_id: str,
+    created_at: str,
+    provider_preferences: tuple[str, ...] = (),
+    credential_profile_id: str | None = None,
+    max_candidates_per_execution: int = 3,
+    max_total_candidate_fetches: int = 8,
+) -> AIDailyVerifiedTraceResult:
+    fetched = reverse_trace_result.fetched_result
+    update = await verify_trace_candidate_batches(
+        source_page_results=fetched.page_results,
+        trace_plans=fetched.discovery_result.trace_plans,
+        trace_execution_batches=reverse_trace_result.trace_execution_batches,
+        source_nodes=source_nodes,
+        source_relations=fetched.discovery_result.source_relations,
+        tracked_source_ids=tracked_source_ids,
+        providers=providers,
+        trusted_runtime=trusted_runtime,
+        execution_context=execution_context,
+        policy_context=policy_context,
+        reader=reader,
+        task_id=task_id,
+        epoch_id=epoch_id,
+        created_at=created_at,
+        provider_preferences=provider_preferences,
+        credential_profile_id=credential_profile_id,
+        max_candidates_per_execution=max_candidates_per_execution,
+        max_total_candidate_fetches=max_total_candidate_fetches,
+    )
+    return AIDailyVerifiedTraceResult(
+        reverse_trace_result=reverse_trace_result,
+        verification_update=update,
+    )
