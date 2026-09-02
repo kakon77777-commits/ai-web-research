@@ -1,376 +1,274 @@
-# ai-web-research
+# Omphalos / AUSI Runtime
 
-A deterministic, no-LLM, reliable site crawler. Milestone toward the layered
-crawler architecture described in
-`網路爬蟲、AI 爬蟲與 Agent 自動化搜尋技術整理` (2026-07-14): robots.txt + sitemap
-discovery, domain-scoped BFS crawling, Crawl4AI-based fetch, raw HTML + Markdown
-storage, SHA-256 change detection, a persistent/resumable frontier, per-domain
-rate limiting, and SQLite metadata tracking.
+> **Omphalos** is the project codename. **AUSI Runtime** (AI-Native Unified Search Intelligence Runtime) is the technical architecture.
+>
+> The repository name `ai-web-research` is historical and no longer describes the full scope of the system.
 
-This is the base layer that a later phase will use to populate and continuously
-update the "通用動態策展目錄" (Universal Dynamic Curated Directory) site.
+**Omphalos is an AI-native search-method runtime.** It is not a search-API aggregator and it is no longer primarily a crawler project. Its goal is to externalize human- and machine-known search methods as typed, composable operators so that AI can select, combine, execute, verify, stop, and eventually learn search strategies across replaceable execution channels.
 
-## What this covers (and doesn't)
-
-Per the source doc's own MVP staging (階段一 + 階段二), extraction stays
-deterministic — no LLM calls yet:
-
-- Reads `robots.txt` and honors `Disallow` / `Crawl-delay`.
-- Discovers pages via sitemap (`sitemapindex` + `urlset`, recursive) and via
-  same-domain `<a href>` links (BFS, bounded by `max_depth` / `max_pages`).
-- Fetches pages with Crawl4AI (headless Chromium), with retry + exponential
-  backoff on failure.
-- Blocks SSRF targets (loopback, private/link-local ranges, cloud metadata IP,
-  non-http(s) schemes) before every fetch.
-- Extracts title / author / published date / canonical URL / language from
-  meta tags, Open Graph, and JSON-LD — no model calls.
-- Saves raw HTML + Markdown to `storage/raw/<domain>/` and
-  `storage/parsed/<domain>/`, and records metadata (URL, hash, status code,
-  timestamps, extracted fields) in `storage/metadata/crawl.db` (SQLite).
-- Re-running against the same site only re-saves pages whose content hash
-  changed; unchanged pages are marked with `unchanged_since` instead.
-- **Persistent, resumable frontier**: every in-scope discovered URL is
-  recorded in a `frontier` table (`pending` / `done`) regardless of whether
-  the current run's page budget has room for it. A later invocation for the
-  same domain picks up `pending` URLs first, and `max_pages_per_domain` is a
-  cumulative cap across runs (not reset each invocation). Pass `--fresh` to
-  discard persisted frontier state and start a domain over.
-- **Per-domain rate limiting**: honors robots.txt `Crawl-delay`, plus a
-  configurable `min_request_interval_seconds`, with random jitter so requests
-  aren't lockstep-periodic.
-
-Not in scope yet: LLM-driven browser-agent fallback for JS-heavy interaction
-(doc 階段三) and near-duplicate detection — those are later phases per the
-doc's own roadmap.
-
-## Research agent (階段五) — built on DRC Search, not doc1's own suggestion
-
-Doc1's own Stage 5 spec just says "use GPT Researcher or Open Deep
-Research." Instead this implements the Divergence–Resonance–Compression
-loop from a separate whitepaper (`drc_search_whitepaper_v0_1.md`) — folded
-in ahead of doc1's own sequencing once that whitepaper existed, rather than
-building the simpler version first and redoing it later.
-
-`src/crawler/research.py`:
-
-- **`diverge(seed, llm_config)`** — one LLM call generating search-query
-  branches across DRC's five categories (semantic / task / source /
-  language / perspective). Real and complete on its own — no external
-  dependency beyond the LLM.
-- **`research_topic(seed, seed_urls_by_branch, config)`** — the orchestrator.
-  **Real gap, disclosed rather than papered over**: this project has no live
-  web-search API (no Exa/Tavily/Brave/Google Custom Search key configured
-  anywhere), so "multi-source retrieval" is bootstrapped from
-  caller-supplied seed URLs per branch, not autonomous open-web search.
-  Each seed is fetched via the existing `crawl_site()` at depth 0 (a
-  research seed is one specific page, not a whole site to BFS), then run
-  through Stage 4 extraction with a research-oriented schema
-  (`key_claim`/`stance`/`relevance`/`notable_quote`). Wiring a real search
-  API in later is a drop-in replacement for how the seed URLs get chosen —
-  everything downstream is unaffected.
-- **`compress(seed, findings, llm_config)`** — synthesizes findings into a
-  cognitive-map structure (`core_proposition`, labeled `clusters` with
-  `source_urls`, `next_queries`, `unresolved_conflicts`). Same
-  anti-hallucination discipline as Stage 4: every `source_url` the LLM
-  cites is checked against the findings actually given to it; unknown URLs
-  are dropped and recorded in `validation_errors` rather than trusted — DRC
-  doc's own principle, "AI 可以壓縮，但不能切斷來源."
-
-```bash
-# seeds.json: {"branch_label": ["https://...", ...], ...}
-python -m crawler research "your research question" --seeds-file seeds.json --verbose
+```text
+Task
+  ↓
+Search Strategy
+  ↓
+Search Method
+  ↓
+Provider Binding
+  ↓
+Authorized Execution
+  ↓
+Evidence
+  ↓
+Gap / Replan
+  ↓
+Search Receipt / Experience
 ```
 
-Results persist to the `research_runs` table (`seed`, `branches_json`,
-`compression_json`) — the CLI prints the run id and the compression JSON.
+The architectural rule is simple:
 
-**Not built here**: MRASG (Multi-Resolution Argumentation Semantic Graph,
-the doc DRC Search pairs with) — a claim/evidence/support/objection graph
-with independently-cached multi-resolution views. Its own MVP section
-scopes it as a standalone graph-storage engine, a separably large piece,
-not a bolt-on to this crawler. "Resonance" scoring (DRC doc's multi-factor
-relevance ranking) also isn't a separate step yet — with caller-supplied
-seeds there's no large candidate pool to rank down; revisit once a real
-search API produces one.
-
-### GIPE/GIPSS v0.2 fold-in — LLM recall fallback + typed status
-
-Two more whitepapers folded in narrowly, not their full scope (GIPE v0.1
-`全域欲相位認識論` and GIPSS v0.2 `全域欲相位語義搜尋法`/DRC+SGCD unification;
-see `research.py`'s module docstring for what was deliberately left out —
-GIPE's physical/lab-in-the-loop actions and GIPSS's SGCD dynamic semantic
-graph, both out of scope for a web crawler):
-
-- **`basic_ai_search(seed, branch, queries, llm_config)`** — a stand-in for
-  a live web-search API, per Neo's explicit choice ("先調用 Gemini Flash
-  充當就可以了"): forces `BASIC_SEARCH_MODEL` (`gemini-3.7-flash` as of
-  2026-08-16, was `gemini-3.5-flash`; Neo's framing — "畢竟我還沒去研究搜尋API"
-  — treats this as a placeholder swapped as newer models ship, not a
-  settled choice) to answer from its own training knowledge instead of
-  live retrieval. Every result is the model's own prior knowledge, never
-  disguised as verified evidence — GIPE's own principle, "推論不能偽裝成
-  原始證據." `research_topic()` calls this automatically for any divergence
-  branch the caller supplied no seed URLs for (pass
-  `use_llm_recall_fallback=False` to disable this and skip those branches
-  instead). Findings from this path are tagged `source_type: "llm_recall"`
-  (vs. `"web_crawled"` for independently verified page evidence) so
-  `compress()` — and anything reading a persisted run later — never
-  conflates the two.
-- **`basic_search_llm_config()`** (named model-agnostically, not e.g.
-  `gemini_35_flash_config`, since `BASIC_SEARCH_MODEL` has already been
-  swapped once) forces two things onto the base LLM config that are easy
-  to get wrong, both confirmed live rather than assumed — and
-  re-confirmed live for `gemini-3.7-flash` specifically when it replaced
-  `gemini-3.5-flash`, not assumed to carry over on model-name similarity
-  alone: `vertex_location="global"` (this model family 404s in
-  `us-central1` for this project — same region-availability gap already
-  found for Claude on Vertex; only `global` works), and `max_tokens=4096`
-  (this is a "thinking" generation that spends part of its output budget
-  on internal reasoning before emitting visible text — a small budget
-  like 1024 either returns empty text, `finish_reason=MAX_TOKENS` with
-  `content=None`, or truncates a real JSON-wrapped answer mid-string;
-  4096 was needed for an actual substantive query, not just a one-word
-  test reply).
-- **`compress()`** now classifies each cluster's `status` as one of
-  `well_supported` / `partially_supported` / `contradicted` /
-  `insufficient_evidence` instead of a single implicit score (GIPSS's 缺失值
-  不是零 — "not found," "contradicted," and "confirmed" are different
-  situations), and its prompt now explicitly asks for counter-evidence-
-  seeking (反證優先): a finding that could overturn the emerging
-  `core_proposition` is worth more than one more confirming example. Live-
-  verified end-to-end: a mixed `web_crawled` + `llm_recall` findings list
-  produced a cluster explicitly flagging that the research seed wasn't a
-  standardized/widely-recognized method — the counter-evidence behavior
-  actually firing, not just present in the prompt.
-
-## Identity search (IPMCS-lite) — search over this project's own corpus
-
-Ported 2026-08-16 from IPMCS v0.1 (`IPMCS_v0.1_同一性多切面展開搜尋法_2026-08-15.md`)
-and the already-working implementation in
-[unbounded-axiom](https://github.com/kakon77733-commits/unbounded-axiom)
-(`scripts/ipmcs/ipmcs_search.mjs`, `shell/public/semantic/semantic-core.js`),
-after Neo's explicit correction that this project, not a dependency on
-another repo's MCP server, is meant to be where every search method lives
-natively ("這一個ai-web-research是做一個所有的搜尋法的...要偷懶使用MCP跟API。也是
-反過來的").
-
-`src/crawler/identity_search.py` — see its own module docstring for the
-full file-by-file breakdown of what got ported vs. what's a genuine gap
-here, checked before writing a line of it rather than assumed from the
-paper's description. In short:
-
-- **Ported, reused as-is**: query divergence (`diverge()`, already existed
-  in `research.py` before IPMCS did — unbounded-axiom's own IPMCS already
-  calls back into this same function).
-- **Ported, corpus-agnostic**: identity fold + candidate union + ranking
-  (group hits by canonical `document_id` across every branch/retriever,
-  rank has_exact-then-max_score) — a faithful port of `ipmcsSearch()`.
-- **Ported algorithm, re-targeted schema**: exact/lexical scoring
-  (`normalize_query`/`tokenize`/`trigrams`/token-overlap/trigram-overlap)
-  is a direct port of `semantic-core.js`'s functions, but scored against
-  this project's own `title` + full crawled Markdown instead of Logic
-  Matrix's curated `{title, summary, headings, keywords}` paper schema —
-  a real re-target, not a drop-in reuse.
-- **Not ported, not faked as present**: no semantic/Vectorize channel (no
-  vector index of this project's own crawled pages exists yet), no
-  multi-view segmentation (every hit is `view="document"` only — no
-  chunk/changepoint views exist for this corpus), no ANLA-verified
-  addressing (would need a from-scratch archive of this project's own
-  corpus, not unbounded-axiom's existing 88MB Logic-Matrix-specific one).
-
-```bash
-# scores every already-crawled page by literal query text only
-python -m crawler search "your query" --top-k 10
-
-# adds a real (small-cost) LLM divergence call first, generating
-# alternate-phrasing branches before scoring each one
-python -m crawler search "your query" --divergence
+```text
+Search Method ≠ Provider ≠ Surface ≠ Adapter ≠ Credential
 ```
 
-Also exposed as the `identity_search_tool` MCP tool (see below) —
-`use_divergence`/`top_k` map to the same CLI flags.
+A Boolean search, citation chase, classification search, counter-evidence search, family resolution, or temporal/version search is a **method**. Brave, Gemini/Google Search, Grok/X Search, Crossref, EPO OPS, a crawler, or a local corpus are **execution channels** that may implement one or more methods.
 
-Real bug found while building this (fixed, not worked around): `store.py`'s
-`upsert()` unconditionally overwrote `markdown_path` with `NULL` on every
-unchanged re-crawl (`run.py` deliberately passes `markdown_path=None` then,
-to skip rewriting files that haven't changed) — silently losing the pointer
-to a `.md` file still valid and still on disk. Fixed with
-`COALESCE(excluded.markdown_path, pages.markdown_path)`; the 3 real rows
-this had already corrupted in the live database were backfilled after
-confirming each reconstructed path resolves to a real, existing file.
+## Project identity
 
-## MCP server — protocol access layer over everything above
+```text
+Codename:
+    Omphalos
 
-Built after Neo shared `可組合混合搜尋架構技術白皮書_CHSA_v0.2_MCP補充版.md`
-(CHSA), which frames MCP as an optional capability-exchange layer sitting
-*over* search intelligence, not the intelligence itself ("MCP = Capability
-Exchange Protocol ≠ Search Intelligence", CHSA §8). `src/crawler/
-mcp_server.py` exposes this project's existing capabilities — nothing new
-was invented to build it, it's purely a protocol face on `crawl_site()`/
-`extract_site()`/`diverge()`/`compress()`/`research_topic()`.
+Technical name:
+    AUSI Runtime
+    AI-Native Unified Search Intelligence Runtime
 
-```bash
-# run directly
-.venv/Scripts/python.exe -m crawler.mcp_server
-# or, if installed with the `mcp` extra:
-crawler-mcp
+Core identity:
+    AI-native Search Method Runtime
+
+Legacy repository name:
+    ai-web-research
 ```
 
-Stdio transport — this is a local Python tool, not a hosted service like
-the [ai-board](https://github.com/kakon77777-commits/ai-board) project's
-Cloudflare Worker, so stdio (how Claude Desktop/Claude Code launch and
-talk to local MCP tools) is the right transport, not Streamable HTTP.
+The current Python package remains `ai_web_research` for compatibility. A repository rebrand does not require a disruptive package-wide rename.
 
-Eight tools: `fetch_document`, `extract_evidence`, `diverge_queries`,
-`basic_ai_search_tool`, `compile_research`, `research_topic_tool`,
-`identity_search_tool`, `get_research_run`. Names follow CHSA's own
-suggested abstract tool profile (§8.7) where this project's actual
-capabilities genuinely match it — `extract_evidence`'s output
-(`value`/`source_quote`/`confidence`/`quote_verified` per field) is close
-to a field-for-field match with CHSA's standard evidence-object shape
-(§9.2); `basic_ai_search_tool` is Neo's explicit stand-in for CHSA's
-`search_candidates` (see GIPE/GIPSS fold-in above) — its result is always
-`source_type: "llm_recall"`, never presented as the real thing.
-`identity_search_tool` is a different thing from `search_candidates`, not
-a replacement for it — it searches this project's own already-crawled
-corpus (see Identity search section above), never the open web. **Not
-exposed, because not built** (not faked to look complete): a real
-`search_candidates` backed by a live web-search API, `resolve_versions`
-and `get_relations` (both need MRASG).
-Every tool carries
-`readOnlyHint`/`destructiveHint`/`idempotentHint`/`openWorldHint`
-annotations — same compliance lesson the ai-board project learned the hard
-way (a write with real side effects needs `destructiveHint`/
-`readOnlyHint=false` accurately set, not left at defaults).
+## Why method-first instead of API-first?
 
-```bash
-# spawns the server as a real subprocess, drives it with a real MCP
-# client over stdio, calls all eight tools for real (not mocked)
-.venv/Scripts/python.exe scripts/verify_mcp_server.py
+Provider/API availability changes much faster than search methodology.
+
+```text
+quota changes
+pricing changes
+API deprecations
+credentials expire
+provider outage
+policy changes
 ```
 
-Deliberately NOT wired into `pytest -q` — matches the precedent the
-ai-board project already set with `verify-remote-mcp.mjs`: a standalone,
-manually-run script instead of a pytest-integrated test, since spawning/
-tearing down a subprocess on every fast-suite run risks flakiness for
-marginal coverage gain over one real end-to-end check.
+Those should change `ProviderState`, not the meaning of the search method itself.
 
-## Semantic extraction (階段四)
-
-`crawler extract <url> [--schema PATH]` is a second pass over pages already
-crawled for that domain: for every page without an extraction row yet, it
-sends the page's Markdown plus a caller-supplied JSON Schema to the
-configured LLM (Prompt-to-Extraction, doc section 11.2) and asks for
-structured values. Deliberately separate from the `crawl` command — this
-stage is LLM-rate-limited and independently re-runnable (bump
-`EXTRACTOR_VERSION` in `semantic_extract.py` to force a redo with a new
-prompt/model without losing prior results). The persisted version is
-actually `EXTRACTOR_VERSION` plus a hash of the schema used
-(`schema_extractor_version()`) — different schemas run against the same
-page never collide on "already extracted," which a real bug during Stage 5
-testing showed matters: a page extracted once with the generic default
-schema was silently skipped when a differently-shaped research schema ran
-against it next, because both used to share one bare version string.
-
-Every returned field carries a `source_quote` the LLM must copy verbatim
-from the page — `semantic_extract.py` independently checks that quote
-actually appears in the source text (whitespace/case-insensitive substring
-match) before trusting the field, and marks it `quote_verified: false`
-otherwise. This is the doc's own 驗證規則 requirement, implemented as a real
-deterministic check against its own stated hallucination risk (12.1), not
-another LLM call grading its own output. Malformed/wrong-type/off-enum
-values are caught by a small hand-rolled JSON Schema subset validator
-(`type`, `properties`, `required`, `enum`, `items.type`) — no external
-schema-validation dependency.
-
-```bash
-# uses config/extraction_schema.example.json by default — copy and edit it
-# for a specific extraction task, the extractor itself is schema-agnostic
-python -m crawler extract https://example.com/ --verbose
-
-# with a custom schema
-python -m crawler extract https://example.com/ --schema path/to/schema.json
+```text
+Method stable
+Provider replaceable
+API disposable
 ```
 
-Results land in the `extractions` table in `storage/metadata/crawl.db`
-(`document_id` + `extractor_version` as the primary key), not a new file per
-page — query it directly or via `PageStore.get_extraction()`.
+For example, the same high-level Web-discovery method may be bound to a provider-neutral API or a model-native search tool without redefining the method. Conversely, two different patent methods may both use EPO OPS while retaining different search semantics.
 
-## LLM provider (optional, for later semantic-extraction work)
+## Provider execution topology
 
-`src/crawler/llm.py` is a minimal provider abstraction across three paths:
+Omphalos distinguishes provider **kind** from provider **topology**. These are orthogonal dimensions.
 
-- **Anthropic** direct API
-- any **OpenAI-compatible** chat-completions endpoint (OpenAI itself, Grok,
-  Gemini's OpenAI-compat endpoint, etc.) selected by `base_url` — one code
-  path covers all of them since they share the same wire format
-- **Google Vertex AI** (Gemini), via the official `google-genai` SDK (an
-  optional dependency, `pip install -e ".[vertex]"`) since GCP's
-  service-account OAuth2 flow isn't worth reimplementing by hand
+### Model-native
 
-The first two mirror the `callAiProvider()` pattern in
-[eveglyph-editor](../eveglyph-editor/src/ai.js) — raw `httpx`, no SDK, both
-branches symmetric and easy to audit.
+Search is deeply integrated into the model/tool loop.
 
-Configure via a local `.env` (gitignored, never commit it):
+Examples / intended routes:
 
-```
-ANTHROPIC_API_KEY=sk-ant-...
-ANTHROPIC_MODEL=claude-haiku-4-5-20251001   # optional, this is the default
+- Gemini + Google Search grounding
+- Grok + Web Search
+- Grok + X Search
 
-OPENAI_API_KEY=sk-...
-OPENAI_MODEL=gpt-4o-mini                     # optional, this is the default
-OPENAI_BASE_URL=https://api.openai.com/v1    # optional; swap for Grok/Gemini/etc.
+### Provider-neutral
 
-VERTEX_PROJECT_ID=your-gcp-project-id
-VERTEX_CREDENTIALS_PATH=/path/to/service-account-key.json
-VERTEX_LOCATION=us-central1                  # optional, this is the default
-VERTEX_MODEL=gemini-2.5-flash-lite           # optional, this is the default — cheap tier, no deep reasoning needed here
+The AI runtime retains more direct control over queries and search sequencing.
 
-LLM_PROVIDER=vertex  # optional; picks which configured provider is default — vertex/Gemini by default here since that quota is by far the largest
-```
+Current example:
 
-If you're pointing this at a real Vertex AI project, list what your project
-can actually call before hardcoding a model name — Model Garden entries can
-be listed but not necessarily invokable in every region:
+- Brave Search
 
-```python
-from google import genai
-client = genai.Client(vertexai=True, project="...", location="us-central1")
-for m in client.models.list():
-    if "gemini" in m.name.lower():
-        print(m.name)
-```
+### Domain-specific
 
-Nothing in the crawl pipeline calls `llm.py` yet — it exists so extraction/
-browser-agent stages can be wired in against a cheap model without picking a
-single vendor up front.
+Authoritative or specialized structured data for one professional domain.
 
-## Setup
+Current examples:
 
-```bash
-uv venv
-uv pip install -e .
-.venv/Scripts/python.exe -m playwright install chromium
+- Crossref — scholarly metadata / NPL discovery
+- EPO OPS — patent bibliographic, family, classification, full-text and legal-event data
+
+### Local / private
+
+Search without assuming public-cloud egress.
+
+Current examples:
+
+- local corpus
+- legacy crawler / browser acquisition
+- future private indexes and enterprise stores
+
+This topology is not a quality ranking. It describes execution shape.
+
+## Current deployment direction
+
+The deployment profile can change without changing AUSI semantics.
+
+```text
+Google-native grounding     → Gemini / Google Search
+X / social discourse        → Grok / X Search
+general neutral Web search  → Brave Search
+academic / NPL              → Crossref
+patent machine data         → EPO OPS
+site acquisition            → crawler
+existing local knowledge    → local corpus
 ```
 
-## Usage
+These are bindings, not architectural centers.
 
-```bash
-python -m crawler crawl https://example.com/ --max-pages 50 --max-depth 3 --verbose
+## Search-method program
 
-# Force a full re-crawl instead of resuming from persisted frontier state:
-python -m crawler crawl https://example.com/ --max-pages 50 --fresh
+The long-term Omphalos research program is to turn known search methodologies into AI-operable search methods.
+
+Examples include:
+
+- exact / phrase / Boolean search
+- lexical and semantic retrieval
+- query reformulation / expansion / divergence
+- faceted and classification search
+- entity / identity search
+- graph and relation search
+- backward / forward citation chasing
+- snowballing and berrypicking
+- exploratory search
+- systematic-review search
+- temporal / version search
+- multilingual search
+- counter-evidence and qualification search
+- patent prior-art / family / claim-oriented search
+- monitoring and reopening search
+
+The project does **not** claim that all known search methods are already implemented. The runtime is designed so methods can be formalized, tested, registered, versioned, composed, and gradually promoted from methodology descriptions into executable `SearchMethodSpec` contracts.
+
+## Runtime architecture
+
+The canonical package is organized around explicit boundaries:
+
+```text
+src/ai_web_research/
+├── methods/       # SearchMethodSpec + method registry
+├── providers/     # provider specs, surfaces, bindings, adapters
+├── planning/      # search plans / graphs / validators
+├── policy/        # authorization and usage envelopes
+├── execution/     # authorized execution → observations
+├── evidence/      # candidate/verified evidence and provenance
+├── gaps/          # evidence/coverage gaps and replanning inputs
+├── experience/    # Search Receipts / strategy experience
+├── discovery/     # discovery/frontier capabilities
+├── knowledge/     # canonical knowledge state
+├── projection/    # outward representations / publication views
+└── domains/       # domain packs such as Patent Intelligence
 ```
 
-Config defaults live in `config/crawler.yaml` (user agent, concurrency,
-timeouts, retry/backoff, rate limiting, SSRF policy). CLI flags `--max-pages` /
-`--max-depth` override the config for a single run.
+The original `src/crawler/` package remains as a compatibility/capability layer while validated behavior is wrapped into the canonical runtime.
 
-## Tests
+## Core invariants
 
-```bash
-.venv/Scripts/python.exe -m pytest -q
+```text
+Method ≠ Provider
+Provider ≠ Surface
+Spec ≠ Implementation
+Planning ≠ Authorization
+Planner ≠ Executor
+UNKNOWN ≠ ALLOW
+Retrieved ≠ Verified
+Citation ≠ Support
+Not Found ≠ False
+Search Receipt ≠ Chain-of-Thought
+Learning ≠ Self-Authorization
 ```
 
-Unit tests use `httpx.MockTransport` / fixtures — no live network calls.
+These are architecture constraints, not optional prompting conventions.
+
+## Existing implementation highlights
+
+The repository currently includes, among other pieces:
+
+- deterministic, resumable crawler with robots/sitemap/rate-limit/SSRF handling;
+- query divergence and legacy model-recall capabilities;
+- local identity / lexical search;
+- `SearchMethodSpec`, method/provider registries and explicit `MethodBinding`;
+- typed Search Graph and deterministic plan validation;
+- provider-neutral execution runtime;
+- trusted policy / usage-envelope boundary;
+- candidate-evidence, anchoring, provenance and append-only evidence history;
+- Search Receipt persistence;
+- Brave Web Search provider;
+- Crossref scholarly metadata provider;
+- EPO OPS Patent Intelligence provider and patent-domain methods;
+- AI Daily / discovery / source-lineage research paths.
+
+## Evidence boundary
+
+Provider results are observations, not truth.
+
+```text
+ProviderObservation
+    ≠ VerifiedEvidence
+
+Search snippet
+    ≠ Claim support
+
+LLM recall
+    ≠ External evidence
+```
+
+For high-risk research, source identity, version, anchor, temporal fit, semantic support, independence, and usage rights can be verified separately.
+
+## MCP
+
+MCP is an optional protocol face over capabilities.
+
+```text
+MCP = capability exchange protocol
+MCP ≠ search intelligence
+```
+
+The canonical runtime should remain usable through Python, CLI, MCP, HTTP, or future agent interfaces without moving search semantics into the protocol layer.
+
+## Naming / repository migration
+
+Recommended future public repository name:
+
+```text
+omphalos
+```
+
+Alternative names:
+
+```text
+omphalos-runtime
+omphalos-search
+omphalos-ausi
+```
+
+The repository can be renamed independently of the Python import package. GitHub redirects old repository URLs after a rename, but package/import migration should be handled separately and deliberately.
+
+## Status
+
+Omphalos is under active research and incremental refactoring. The architecture is intentionally evolving through typed contracts, tests, provider adapters, domain packs, and evidence-aware research loops rather than a big-bang rewrite.
+
+The crawler is still useful. It is simply no longer the identity of the project.
+
+---
+
+**One-line description**
+
+> **Omphalos / AUSI Runtime — an AI-native search-method runtime that lets AI select, compose, execute, verify, and learn search strategies across replaceable models, search engines, APIs, databases, crawlers, and local corpora.**
