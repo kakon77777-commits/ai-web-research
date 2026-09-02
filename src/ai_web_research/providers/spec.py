@@ -20,6 +20,14 @@ class ProviderKind(StrEnum):
     CUSTOM = "custom"
 
 
+class ProviderTopology(StrEnum):
+    UNSPECIFIED = "unspecified"
+    MODEL_NATIVE = "model_native"
+    PROVIDER_NEUTRAL = "provider_neutral"
+    DOMAIN_SPECIFIC = "domain_specific"
+    LOCAL_PRIVATE = "local_private"
+
+
 class SurfaceKind(StrEnum):
     WEB_UI = "web_ui"
     PUBLIC_API = "public_api"
@@ -54,6 +62,7 @@ class ProviderSpec:
     jurisdictions: tuple[str, ...]
     surfaces: tuple[ProviderSurface, ...]
     metadata: dict[str, JsonValue]
+    topology: ProviderTopology = ProviderTopology.UNSPECIFIED
 
 
 @dataclass(frozen=True)
