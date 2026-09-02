@@ -210,7 +210,15 @@ The repository currently includes, among other pieces:
 - trusted policy / usage-envelope boundary;
 - candidate-evidence, anchoring, provenance and append-only evidence history;
 - Search Receipt persistence;
-- Brave Web Search provider;
+- Brave Web Search provider (live-verified with a real key);
+- Grok (xAI) model-native Web Search + X Search providers (live-verified);
+- Gemini + Google Search grounding — two sibling providers for the same
+  `method.lexical_search`, live-verified with real credentials: the
+  AI-Studio-key-based Interactions API (`provider.gemini_google`, the
+  intended long-term default) and a Vertex-AI-service-account-based one
+  (`provider.gemini_google_vertex`, an interim channel while Vertex trial
+  credit lasts — note its citation URLs are Google redirect wrappers, not
+  direct source URLs, a documented Vertex behavior);
 - Crossref scholarly metadata provider;
 - EPO OPS Patent Intelligence provider and patent-domain methods;
 - AI Daily / discovery / source-lineage research paths.
