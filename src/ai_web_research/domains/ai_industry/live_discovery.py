@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 from ai_web_research.discovery.models import DiscoveryBatch
 from ai_web_research.discovery.normalize import normalize_discovery_observation
-from ai_web_research.execution.models import ProviderObservation
+from ai_web_research.execution.models import ExecutionContext, ProviderObservation
 from ai_web_research.knowledge.models import CanonicalClaim, CanonicalEvent, KnowledgeState
 from ai_web_research.knowledge.sqlite import KnowledgeStore
+from ai_web_research.policy.models import PolicyContext
+from ai_web_research.providers.registry import ProviderRegistrySnapshot
 from ai_web_research.resource_control.models import ResearchBudget
 from ai_web_research.source_graph.family import resolve_source_families
 from ai_web_research.source_graph.models import SourceFamilyResolution, SourceNode, SourceRelation
@@ -19,6 +22,10 @@ from ai_web_research.source_graph.trace import (
     SourceTraceSignals,
     materialize_explicit_trace_edges,
     plan_reverse_trace,
+)
+from ai_web_research.source_graph.trace_execution import (
+    TraceExecutionBatch,
+    execute_reverse_trace_plan,
 )
 
 from .canonicalize import canonicalize_event, promote_claim
@@ -39,6 +46,16 @@ class FetchedSourcePageResult:
 class AIDailyFetchedSourceResult:
     discovery_result: "AIDailyDiscoveryResult"
     page_results: tuple[FetchedSourcePageResult, ...]
+
+
+@dataclass(frozen=True)
+class AIDailyTraceExpansionResult:
+    fetched_result: AIDailyFetchedSourceResult
+    trace_execution_batches: tuple[TraceExecutionBatch, ...]
+
+    @property
+    def candidate_count(self) -> int:
+        return sum(batch.candidate_count for batch in self.trace_execution_batches)
 
 
 @dataclass(frozen=True)
@@ -164,10 +181,16 @@ def build_ai_daily_from_fetched_pages(
     for page in fetched_pages:
         extraction = extract_page_source_signals(page)
         compiled = compile_page_source_signals(
-            page, extraction, claim_keywords=claim_keywords
+            page,
+            extraction,
+            claim_keywords=claim_keywords,
         )
         page_results.append(
-            FetchedSourcePageResult(page=page, extraction=extraction, compiled=compiled)
+            FetchedSourcePageResult(
+                page=page,
+                extraction=extraction,
+                compiled=compiled,
+            )
         )
         trace_signals_by_source[page.source_id] = compiled.trace_signals
         compiled_relations.extend(compiled.relations)
@@ -196,4 +219,42 @@ def build_ai_daily_from_fetched_pages(
     return AIDailyFetchedSourceResult(
         discovery_result=discovery_result,
         page_results=tuple(page_results),
+    )
+
+
+async def expand_ai_daily_reverse_trace(
+    fetched_result: AIDailyFetchedSourceResult,
+    *,
+    providers: ProviderRegistrySnapshot,
+    trusted_runtime: Any,
+    execution_context: ExecutionContext,
+    policy_context: PolicyContext,
+    task_id: str,
+    epoch_id: str,
+    created_at: str,
+    provider_preferences: tuple[str, ...] = (),
+    top_k: int = 10,
+    credential_profile_id: str | None = None,
+) -> AIDailyTraceExpansionResult:
+    batches: list[TraceExecutionBatch] = []
+    for source_id in sorted(fetched_result.discovery_result.trace_plans):
+        plan = fetched_result.discovery_result.trace_plans[source_id]
+        batches.append(
+            await execute_reverse_trace_plan(
+                plan,
+                providers=providers,
+                trusted_runtime=trusted_runtime,
+                execution_context=execution_context,
+                policy_context=policy_context,
+                task_id=task_id,
+                epoch_id=epoch_id,
+                created_at=created_at,
+                provider_preferences=provider_preferences,
+                top_k=top_k,
+                credential_profile_id=credential_profile_id,
+            )
+        )
+    return AIDailyTraceExpansionResult(
+        fetched_result=fetched_result,
+        trace_execution_batches=tuple(batches),
     )
