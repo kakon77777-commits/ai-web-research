@@ -1,0 +1,55 @@
+name: Omphalos RC Gate
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rc-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install development environment
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install build
+          pip install -e ".[dev]"
+
+      - name: Full repository tests
+        run: pytest -q
+
+      - name: Compile Python sources
+        run: python -m compileall -q src tests
+
+      - name: Omphalos release gate
+        run: python scripts/omphalos_release_gate.py
+
+      - name: Build sdist and wheel
+        run: python -m build
+
+      - name: Clean wheel install
+        shell: bash
+        run: |
+          python -m venv .venv-rc
+          WHEEL="$(ls dist/*.whl | head -n 1)"
+          .venv-rc/bin/pip install --no-deps "$WHEEL"
+          .venv-rc/bin/omphalos version
+          .venv-rc/bin/omphalos doctor --json
+
+      - name: Upload RC package artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: omphalos-rc-package
+          path: |
+            dist/*
+            release/omphalos-v1.0.0rc1-public-api.json

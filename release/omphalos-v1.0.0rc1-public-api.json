@@ -1,0 +1,507 @@
+{
+  "contracts": {
+    "ArtifactKind": {
+      "kind": "enum",
+      "source": "ai_web_research.core.types.ArtifactKind",
+      "values": [
+        "task",
+        "query",
+        "query_set",
+        "identifier",
+        "seed",
+        "candidate",
+        "candidate_set",
+        "document_ref",
+        "document",
+        "structured_record",
+        "evidence_candidate",
+        "verified_evidence",
+        "claim",
+        "gap",
+        "coverage_state",
+        "synthesis",
+        "policy_ref"
+      ]
+    },
+    "AuthorizedAction": {
+      "fields": [
+        "action",
+        "authorization",
+        "credential_profile_id",
+        "usage_seed"
+      ],
+      "frozen": true,
+      "kind": "dataclass",
+      "source": "ai_web_research.execution.models.AuthorizedAction"
+    },
+    "CandidateEvidence": {
+      "fields": [
+        "candidate_evidence_id",
+        "acquired_asset_id",
+        "field_name",
+        "extracted_value",
+        "source_identity_ref",
+        "work_identity_ref",
+        "version_identity_ref",
+        "manifestation_identity_ref",
+        "anchor_refs",
+        "extraction_method",
+        "extractor_version",
+        "model_ref",
+        "source_type",
+        "usage_envelope_id",
+        "extractor_confidence",
+        "semantic_support_verified",
+        "validation_notes",
+        "created_at"
+      ],
+      "frozen": true,
+      "kind": "dataclass",
+      "source": "ai_web_research.evidence.models.CandidateEvidence"
+    },
+    "ErrorDescriptor": {
+      "fields": [
+        "code",
+        "category",
+        "recoverable",
+        "description"
+      ],
+      "frozen": true,
+      "kind": "dataclass",
+      "source": "omphalos.errors.ErrorDescriptor"
+    },
+    "EvidenceGapType": {
+      "kind": "enum",
+      "source": "ai_web_research.gaps.projection.EvidenceGapType",
+      "values": [
+        "missing_primary_source",
+        "missing_independent_support",
+        "missing_counter_check",
+        "unresolved_contradiction",
+        "missing_version",
+        "missing_identity",
+        "unverified_anchor",
+        "stale_evidence",
+        "policy_restricted_source",
+        "unverified_semantic_support",
+        "unresolved_provenance"
+      ]
+    },
+    "EvidenceProvenance": {
+      "fields": [
+        "provenance_id",
+        "evidence_id",
+        "source_identity_ref",
+        "source_family_id",
+        "independent_root_ref",
+        "root_resolved",
+        "lineage_relation_refs",
+        "created_at"
+      ],
+      "frozen": true,
+      "kind": "dataclass",
+      "source": "ai_web_research.evidence.models.EvidenceProvenance"
+    },
+    "EvidenceStatus": {
+      "kind": "enum",
+      "source": "ai_web_research.evidence.models.EvidenceStatus",
+      "values": [
+        "discovered",
+        "acquired",
+        "identified",
+        "anchored",
+        "fixity_verified",
+        "content_verified",
+        "claim_linked",
+        "corroborated",
+        "contested",
+        "qualified",
+        "superseded",
+        "retracted",
+        "stale",
+        "unverifiable",
+        "policy_restricted"
+      ]
+    },
+    "GapProjection": {
+      "fields": [
+        "gap_projection_id",
+        "claim_id",
+        "evidence_refs",
+        "gap_types",
+        "mandatory",
+        "severity",
+        "reason_codes",
+        "created_at"
+      ],
+      "frozen": true,
+      "kind": "dataclass",
+      "source": "ai_web_research.gaps.projection.GapProjection"
+    },
+    "MethodBinding": {
+      "fields": [
+        "binding_id",
+        "method_ref",
+        "provider_ref",
+        "surface_id",
+        "adapter_id",
+        "adapter_version",
+        "enabled",
+        "parameter_mapping",
+        "metadata"
+      ],
+      "frozen": true,
+      "kind": "dataclass",
+      "source": "ai_web_research.providers.spec.MethodBinding"
+    },
+    "OmphalosError": {
+      "kind": "class",
+      "source": "omphalos.errors.OmphalosError"
+    },
+    "OmphalosErrorCode": {
+      "kind": "enum",
+      "source": "omphalos.errors.OmphalosErrorCode",
+      "values": [
+        "VALIDATION_ERROR",
+        "PLAN_INVALID",
+        "BINDING_UNAVAILABLE",
+        "POLICY_BLOCKED",
+        "HUMAN_REVIEW_REQUIRED",
+        "AUTH_REQUIRED",
+        "CREDENTIAL_UNAVAILABLE",
+        "PROVIDER_UNAVAILABLE",
+        "QUOTA_EXHAUSTED",
+        "RATE_LIMITED",
+        "TIMEOUT",
+        "NETWORK_ERROR",
+        "PROVIDER_ERROR",
+        "NORMALIZATION_ERROR",
+        "EVIDENCE_VERIFICATION_FAILED",
+        "STORAGE_CONFLICT",
+        "REPLAY_MISMATCH",
+        "INTERNAL_ERROR"
+      ]
+    },
+    "PolicyDecision": {
+      "kind": "enum",
+      "source": "ai_web_research.execution.models.PolicyDecision",
+      "values": [
+        "allow",
+        "allow_with_obligations",
+        "deny",
+        "unknown",
+        "review"
+      ]
+    },
+    "PolicyFreshness": {
+      "kind": "enum",
+      "source": "ai_web_research.routing.models.PolicyFreshness",
+      "values": [
+        "fresh",
+        "stale",
+        "review_required",
+        "unknown"
+      ]
+    },
+    "ProviderAvailability": {
+      "kind": "enum",
+      "source": "ai_web_research.routing.models.ProviderAvailability",
+      "values": [
+        "available",
+        "degraded",
+        "unavailable",
+        "unknown"
+      ]
+    },
+    "ProviderObservation": {
+      "fields": [
+        "observation_id",
+        "action_id",
+        "provider_id",
+        "surface_id",
+        "status",
+        "artifacts",
+        "raw_ref",
+        "result_count",
+        "cost",
+        "latency_ms",
+        "continuation",
+        "diagnostics",
+        "occurred_at",
+        "metadata"
+      ],
+      "frozen": true,
+      "kind": "dataclass",
+      "source": "ai_web_research.execution.models.ProviderObservation"
+    },
+    "ProviderSpec": {
+      "fields": [
+        "provider_id",
+        "version",
+        "kind",
+        "display_name",
+        "domains",
+        "languages",
+        "jurisdictions",
+        "surfaces",
+        "metadata",
+        "topology"
+      ],
+      "frozen": true,
+      "kind": "dataclass",
+      "source": "ai_web_research.providers.spec.ProviderSpec"
+    },
+    "ProviderState": {
+      "fields": [
+        "provider_ref",
+        "surface_id",
+        "availability",
+        "healthy",
+        "credential_available",
+        "quota_remaining",
+        "quota_reset_at",
+        "estimated_cost",
+        "estimated_latency_ms",
+        "policy_freshness",
+        "runtime_capabilities",
+        "model_available",
+        "last_checked_at",
+        "reason_codes",
+        "metadata"
+      ],
+      "frozen": true,
+      "kind": "dataclass",
+      "source": "ai_web_research.routing.models.ProviderState"
+    },
+    "ProviderTopology": {
+      "kind": "enum",
+      "source": "ai_web_research.providers.spec.ProviderTopology",
+      "values": [
+        "unspecified",
+        "model_native",
+        "provider_neutral",
+        "domain_specific",
+        "local_private"
+      ]
+    },
+    "RiskClass": {
+      "kind": "enum",
+      "source": "ai_web_research.core.types.RiskClass",
+      "values": [
+        "low",
+        "medium",
+        "high",
+        "professional_review"
+      ]
+    },
+    "SearchAction": {
+      "fields": [
+        "action_id",
+        "task_id",
+        "epoch_id",
+        "method_ref",
+        "provider_ref",
+        "surface_id",
+        "binding_id",
+        "action_kind",
+        "inputs",
+        "parameters",
+        "guards",
+        "expected_effects",
+        "created_by",
+        "created_at"
+      ],
+      "frozen": true,
+      "kind": "dataclass",
+      "source": "ai_web_research.core.types.SearchAction"
+    },
+    "SearchActionReceipt": {
+      "fields": [
+        "action_receipt_id",
+        "task_id",
+        "epoch_id",
+        "action_id",
+        "method_ref",
+        "provider_ref",
+        "surface_id",
+        "binding_id",
+        "policy_decision",
+        "policy_refs",
+        "reason_codes",
+        "observation_id",
+        "observation_status",
+        "result_count",
+        "artifact_refs",
+        "cost",
+        "latency_ms",
+        "gap_refs",
+        "occurred_at",
+        "metadata"
+      ],
+      "frozen": true,
+      "kind": "dataclass",
+      "source": "ai_web_research.experience.receipt.SearchActionReceipt"
+    },
+    "SearchIntent": {
+      "kind": "enum",
+      "source": "ai_web_research.core.types.SearchIntent",
+      "values": [
+        "locate",
+        "discover",
+        "verify",
+        "falsify",
+        "compare",
+        "monitor",
+        "research",
+        "resolve_identity",
+        "resolve_version"
+      ]
+    },
+    "SearchMethodSpec": {
+      "fields": [
+        "method_id",
+        "version",
+        "availability",
+        "aliases",
+        "purpose",
+        "goals",
+        "representations",
+        "directions",
+        "interaction_modes",
+        "evidence_effects",
+        "input_contract",
+        "output_contract",
+        "parameter_schema",
+        "required_capabilities",
+        "preconditions",
+        "postconditions",
+        "failure_modes",
+        "cost_prior",
+        "latency_prior",
+        "receipt_requirements",
+        "stopping_implications",
+        "metadata"
+      ],
+      "frozen": true,
+      "kind": "dataclass",
+      "source": "ai_web_research.methods.spec.SearchMethodSpec"
+    },
+    "SearchPlan": {
+      "fields": [
+        "plan_id",
+        "task_id",
+        "epoch_id",
+        "nodes",
+        "edges",
+        "entry_node_ids",
+        "metadata"
+      ],
+      "frozen": true,
+      "kind": "dataclass",
+      "source": "ai_web_research.planning.graph.SearchPlan"
+    },
+    "SearchReceipt": {
+      "fields": [
+        "receipt_id",
+        "task_id",
+        "epoch_id",
+        "registry_snapshot_id",
+        "planner_id",
+        "planner_version",
+        "actions",
+        "stop_reason",
+        "status",
+        "created_at",
+        "metadata"
+      ],
+      "frozen": true,
+      "kind": "dataclass",
+      "source": "ai_web_research.experience.receipt.SearchReceipt"
+    },
+    "SearchReceiptStatus": {
+      "kind": "enum",
+      "source": "ai_web_research.experience.receipt.SearchReceiptStatus",
+      "values": [
+        "complete",
+        "partial",
+        "blocked",
+        "review_required",
+        "failed"
+      ]
+    },
+    "SearchState": {
+      "fields": [
+        "task_id",
+        "epoch_id",
+        "planned_at",
+        "active_artifacts",
+        "candidate_refs",
+        "evidence_refs",
+        "open_gap_refs",
+        "completed_action_ids",
+        "failed_action_ids",
+        "budget_state",
+        "coverage_state",
+        "metadata"
+      ],
+      "frozen": false,
+      "kind": "dataclass",
+      "source": "ai_web_research.core.types.SearchState"
+    },
+    "SearchTask": {
+      "fields": [
+        "task_id",
+        "raw_request",
+        "intent",
+        "domain",
+        "purpose",
+        "languages",
+        "jurisdictions",
+        "freshness",
+        "coverage_requirements",
+        "verification_requirements",
+        "source_preferences",
+        "risk_class",
+        "budget",
+        "domain_pack",
+        "metadata"
+      ],
+      "frozen": true,
+      "kind": "dataclass",
+      "source": "ai_web_research.core.types.SearchTask"
+    },
+    "VerifiedEvidence": {
+      "fields": [
+        "evidence_id",
+        "candidate_evidence_id",
+        "acquired_asset_id",
+        "source_identity_ref",
+        "work_identity_ref",
+        "version_identity_ref",
+        "manifestation_identity_ref",
+        "anchor_refs",
+        "verification_refs",
+        "usage_envelope_id",
+        "status",
+        "created_at",
+        "metadata"
+      ],
+      "frozen": true,
+      "kind": "dataclass",
+      "source": "ai_web_research.evidence.models.VerifiedEvidence"
+    },
+    "VersionRef": {
+      "fields": [
+        "id",
+        "version"
+      ],
+      "frozen": true,
+      "kind": "dataclass",
+      "source": "ai_web_research.core.types.VersionRef"
+    }
+  },
+  "facade_package": "omphalos",
+  "package_name": "ai-web-research",
+  "package_version": "1.0.0rc1",
+  "public_api_version": "1.0"
+}
