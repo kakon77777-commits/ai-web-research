@@ -17,6 +17,8 @@ class EvidenceGapType(StrEnum):
     UNVERIFIED_ANCHOR = "unverified_anchor"
     STALE_EVIDENCE = "stale_evidence"
     POLICY_RESTRICTED_SOURCE = "policy_restricted_source"
+    UNVERIFIED_SEMANTIC_SUPPORT = "unverified_semantic_support"
+    UNRESOLVED_PROVENANCE = "unresolved_provenance"
 
 
 @dataclass(frozen=True)
@@ -67,6 +69,45 @@ def project_candidate_gaps(
         gap_projection_id=f"{candidate.candidate_evidence_id}:gap",
         claim_id=None,
         evidence_refs=(candidate.candidate_evidence_id,),
+        gap_types=ordered,
+        mandatory=bool(ordered),
+        severity=1.0 if ordered else 0.0,
+        reason_codes=tuple(sorted(reason_codes)),
+        created_at=created_at,
+    )
+
+
+
+def project_verified_evidence_gaps(
+    evidence,
+    provenance,
+    *,
+    claim_id: str | None,
+    semantic_support_verified: bool,
+    contested: bool = False,
+    created_at: str,
+) -> GapProjection:
+    gap_types: set[EvidenceGapType] = set()
+    reason_codes: set[str] = set()
+
+    if not provenance.root_resolved:
+        gap_types.add(EvidenceGapType.UNRESOLVED_PROVENANCE)
+        reason_codes.add("INDEPENDENT_ROOT_UNRESOLVED")
+
+    if claim_id is not None and not semantic_support_verified:
+        gap_types.add(EvidenceGapType.UNVERIFIED_SEMANTIC_SUPPORT)
+        reason_codes.add("SEMANTIC_SUPPORT_NOT_VERIFIED")
+
+    if contested:
+        gap_types.add(EvidenceGapType.UNRESOLVED_CONTRADICTION)
+        reason_codes.add("CLAIM_EVIDENCE_CONTESTED")
+
+    ordered = tuple(sorted(gap_types, key=lambda item: item.value))
+    claim_suffix = claim_id if claim_id is not None else "unlinked"
+    return GapProjection(
+        gap_projection_id=f"{evidence.evidence_id}:closure-gap:{claim_suffix}",
+        claim_id=claim_id,
+        evidence_refs=(evidence.evidence_id,),
         gap_types=ordered,
         mandatory=bool(ordered),
         severity=1.0 if ordered else 0.0,

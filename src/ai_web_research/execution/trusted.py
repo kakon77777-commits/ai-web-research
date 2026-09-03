@@ -9,6 +9,7 @@ from ai_web_research.evidence.materialize import (
     materialize_candidate_evidence,
 )
 from ai_web_research.evidence.models import CandidateEvidenceMaterialization, MaterializedAsset
+from ai_web_research.evidence.store import EvidenceClosureStore
 from ai_web_research.execution.models import AuthorizedAction, ExecutionContext, ProviderObservation
 from ai_web_research.execution.runtime import ExecutionRuntime
 from ai_web_research.gaps.projection import GapProjection, project_candidate_gaps
@@ -143,6 +144,9 @@ class TrustedExecutionRuntime:
                     self.store.save_anchor(anchor)
                 for candidate in bundle.candidates:
                     self.store.save_candidate_evidence(candidate)
+                closure_store = EvidenceClosureStore(self.store)
+                for verification in bundle.verifications:
+                    closure_store.save_verification_result(verification)
 
             for candidate in bundle.candidates:
                 if ledger is not None:

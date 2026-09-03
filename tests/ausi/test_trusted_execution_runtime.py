@@ -1,5 +1,6 @@
 import pytest
 
+from ai_web_research.evidence.store import EvidenceClosureStore
 from ai_web_research.core.types import (
     ActionKind,
     ArtifactKind,
@@ -241,6 +242,10 @@ async def test_allow_path_closes_policy_execution_asset_candidate_ledger_gap_loo
         assert bundle.candidates[0].semantic_support_verified is False
         assert bundle.verifications[0].dimension.value == "anchor"
         assert bundle.verifications[0].decision.value == "pass"
+        persisted_verification = EvidenceClosureStore(store).get_verification_result(
+            bundle.verifications[0].verification_id
+        )
+        assert persisted_verification == bundle.verifications[0]
         assert result.gap_projections[0].gap_types[0].value == "missing_identity"
 
         events = store.list_ledger_events()
