@@ -7,6 +7,7 @@ from ai_web_research.core.types import JsonValue, SearchAction, VersionRef
 from ai_web_research.execution.models import ObservationStatus, PolicyDecision, ProviderObservation
 from ai_web_research.gaps.projection import GapProjection
 from ai_web_research.policy.models import PolicyEvaluation
+from ai_web_research.routing.models import RoutingDecision
 
 
 class SearchReceiptStatus(StrEnum):
@@ -74,6 +75,13 @@ class SearchReceiptRecorder:
     def _id(action: SearchAction) -> str:
         return f"{action.epoch_id}:{action.action_id}:receipt"
 
+    @staticmethod
+    def _metadata(base: dict[str, JsonValue], routing_decision: RoutingDecision | None) -> dict[str, JsonValue]:
+        metadata = dict(base)
+        if routing_decision is not None:
+            metadata["routing"] = routing_decision.to_receipt_metadata()
+        return metadata
+
     def record_success(
         self,
         *,
@@ -81,6 +89,7 @@ class SearchReceiptRecorder:
         evaluation: PolicyEvaluation,
         observation: ProviderObservation,
         gap_projections: tuple[GapProjection, ...] = (),
+        routing_decision: RoutingDecision | None = None,
     ) -> SearchActionReceipt:
         receipt = SearchActionReceipt(
             action_receipt_id=self._id(action),
@@ -102,9 +111,10 @@ class SearchReceiptRecorder:
             latency_ms=observation.latency_ms,
             gap_refs=tuple(gap.gap_projection_id for gap in gap_projections),
             occurred_at=observation.occurred_at,
-            metadata={
-                "observation_diagnostics": list(observation.diagnostics),
-            },
+            metadata=self._metadata(
+                {"observation_diagnostics": list(observation.diagnostics)},
+                routing_decision,
+            ),
         )
         self.store.save_search_action_receipt(receipt)
         return receipt
@@ -115,6 +125,7 @@ class SearchReceiptRecorder:
         action: SearchAction,
         evaluation: PolicyEvaluation,
         occurred_at: str,
+        routing_decision: RoutingDecision | None = None,
     ) -> SearchActionReceipt:
         receipt = SearchActionReceipt(
             action_receipt_id=self._id(action),
@@ -136,7 +147,10 @@ class SearchReceiptRecorder:
             latency_ms=None,
             gap_refs=(),
             occurred_at=occurred_at,
-            metadata={"rejected_before_provider_execution": True},
+            metadata=self._metadata(
+                {"rejected_before_provider_execution": True},
+                routing_decision,
+            ),
         )
         self.store.save_search_action_receipt(receipt)
         return receipt
@@ -148,6 +162,7 @@ class SearchReceiptRecorder:
         evaluation: PolicyEvaluation,
         occurred_at: str,
         exception: Exception,
+        routing_decision: RoutingDecision | None = None,
     ) -> SearchActionReceipt:
         receipt = SearchActionReceipt(
             action_receipt_id=self._id(action),
@@ -172,11 +187,14 @@ class SearchReceiptRecorder:
             latency_ms=None,
             gap_refs=(),
             occurred_at=occurred_at,
-            metadata={
-                "provider_execution_failed": True,
-                "exception_type": type(exception).__name__,
-                "exception_message": str(exception),
-            },
+            metadata=self._metadata(
+                {
+                    "provider_execution_failed": True,
+                    "exception_type": type(exception).__name__,
+                    "exception_message": str(exception),
+                },
+                routing_decision,
+            ),
         )
         self.store.save_search_action_receipt(receipt)
         return receipt
