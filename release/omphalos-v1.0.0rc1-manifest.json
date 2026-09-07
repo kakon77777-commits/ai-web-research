@@ -1,0 +1,25 @@
+{
+  "artifact_format_version": "0.9.0",
+  "base_master_sha": "ee490addeaac29efa7831df728950c0cad68f07e",
+  "benchmark_artifacts": {
+    "benchmarks/artifacts/omphalos-v0.8-reference-manifest.json": "5c89ca9d6e8ab24ffbf73474cd0f58d3da8970b21181d38981e8d430c05376cb",
+    "benchmarks/artifacts/omphalos-v0.8-reference-report.json": "f36311e69088afbdcb085945bf24a761b935eb1e18664a03625f91350c3b1d6f",
+    "benchmarks/omphalos-v0.8-reference-suite.json": "80126f5955f738dd4f20c8d7e8e6b344df6e16e401bc921b1c4f9cc610515d19"
+  },
+  "manifest_id": "omphalos-rc-manifest:106dea98374a01161f54a5c4e927a5199dd9ea672b4f716a13cf30af55a7f213",
+  "package_version": "1.0.0rc1",
+  "public_api_artifact": {
+    "path": "release/omphalos-v1.0.0rc1-public-api.json",
+    "sha256": "7e46a963e19100c1feac9525ee221b82b98f4dad78a85e25bc55d8a2665763a9"
+  },
+  "public_api_version": "1.0",
+  "rc_not_final_v1": true,
+  "release_gate_version": "0.9.0",
+  "required_release_docs": [
+    "docs/QUICKSTART.md",
+    "docs/release/API_STABILITY_AND_MIGRATION_v1.md",
+    "docs/release/SECURITY_AND_CREDENTIALS_v1.md",
+    "docs/release/REFERENCE_WORKFLOWS_v1.md",
+    "docs/release/RELEASE_CANDIDATE_v1.0.0rc1.md"
+  ]
+}

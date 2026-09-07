@@ -1,0 +1,117 @@
+name: Omphalos RC Gate
+
+on:
+  push:
+    branches:
+      - integration/omphalos-v0.9-hardening-rc
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  rc-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      SOURCE_DATE_EPOCH: "1788449640"
+    steps:
+      - name: Checkout exact source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Record source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rev-parse HEAD | tee /tmp/omphalos-head.txt
+          git status --short
+          python --version
+          find src tests -type f | sort | wc -l
+
+      - name: Install development environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install build
+          python -m pip install -e '.[dev]'
+          python -m pip check
+
+      - name: Full repository tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q
+
+      - name: Compile Python sources and tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m compileall -q src tests
+
+      - name: Omphalos release gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/omphalos_release_gate.py | tee /tmp/omphalos-release-gate.json
+
+      - name: Reproducible build A
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dist build
+          python -m build
+          mkdir -p /tmp/omphalos-build-a
+          cp dist/* /tmp/omphalos-build-a/
+          sha256sum /tmp/omphalos-build-a/* | sed 's#/tmp/omphalos-build-a/##' | tee /tmp/omphalos-build-a.sha256
+
+      - name: Reproducible build B and compare
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dist build
+          python -m build
+          mkdir -p /tmp/omphalos-build-b
+          cp dist/* /tmp/omphalos-build-b/
+          sha256sum /tmp/omphalos-build-b/* | sed 's#/tmp/omphalos-build-b/##' | tee /tmp/omphalos-build-b.sha256
+          diff -u /tmp/omphalos-build-a.sha256 /tmp/omphalos-build-b.sha256
+          cp /tmp/omphalos-build-a.sha256 /tmp/omphalos-dist-sha256.txt
+
+      - name: Clean wheel install and CLI smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv /tmp/omphalos-wheel-smoke
+          /tmp/omphalos-wheel-smoke/bin/python -m pip install --upgrade pip
+          WHEEL="$(ls dist/*.whl | head -n 1)"
+          /tmp/omphalos-wheel-smoke/bin/python -m pip install --no-deps "$WHEEL"
+          cd /tmp
+          /tmp/omphalos-wheel-smoke/bin/python -c 'import ai_web_research, crawler, omphalos; print(omphalos.__version__)'
+          /tmp/omphalos-wheel-smoke/bin/omphalos version
+          /tmp/omphalos-wheel-smoke/bin/omphalos doctor --json
+
+      - name: Upload RC package artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: omphalos-v1.0.0rc1-package
+          path: |
+            dist/*
+            release/omphalos-v1.0.0rc1-public-api.json
+            release/omphalos-v1.0.0rc1-manifest.json
+            /tmp/omphalos-head.txt
+            /tmp/omphalos-release-gate.json
+            /tmp/omphalos-dist-sha256.txt
+          if-no-files-found: ignore
