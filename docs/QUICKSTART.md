@@ -1,6 +1,6 @@
-# Omphalos / AUSI Runtime Quickstart — v1.0.0rc1
+# Omphalos / AUSI Runtime Quickstart — v1.0.0
 
-Omphalos `1.0.0rc1` is the release candidate for the first frozen v1 public API.
+Omphalos `1.0.0` is the first final release of the frozen v1 public API.
 
 ## Install
 
@@ -40,7 +40,7 @@ provider_type = omphalos.ProviderSpec
 receipt_type = omphalos.SearchReceipt
 ```
 
-Applications targeting v1 should prefer `import omphalos` for frozen public contracts. The legacy/internal implementation package remains `ai_web_research`.
+Applications targeting v1 should prefer `import omphalos` for frozen public contracts. The implementation packages remain `ai_web_research` and `crawler` for compatibility.
 
 ## Runtime boundary
 
@@ -57,4 +57,4 @@ Task
 → Stop / Receipt / Experience
 ```
 
-`1.0.0rc1` is an RC and is not yet the final v1.0 release.
+The public API version is `1.0`. Provider/API churn remains an adapter/routing concern and does not by itself change Search Method identity.
