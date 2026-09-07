@@ -14,6 +14,9 @@ permissions:
 
 jobs:
   rc-gate:
+    # Historical v0.9 gate. Once the RC is merged, later release/product PRs
+    # must be evaluated by their own current gate rather than regenerated as rc1.
+    if: github.event_name != 'pull_request' || github.head_ref == 'integration/omphalos-v0.9-hardening-rc'
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:

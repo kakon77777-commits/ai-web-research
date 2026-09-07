@@ -1,0 +1,87 @@
+{
+  "artifact_format_version": "1.0.0",
+  "benchmark_artifacts": {
+    "benchmarks/artifacts/omphalos-v0.8-reference-manifest.json": "5c89ca9d6e8ab24ffbf73474cd0f58d3da8970b21181d38981e8d430c05376cb",
+    "benchmarks/artifacts/omphalos-v0.8-reference-report.json": "f36311e69088afbdcb085945bf24a761b935eb1e18664a03625f91350c3b1d6f",
+    "benchmarks/omphalos-v0.8-reference-suite.json": "80126f5955f738dd4f20c8d7e8e6b344df6e16e401bc921b1c4f9cc610515d19"
+  },
+  "final_release": true,
+  "final_release_gate_version": "1.0.0",
+  "gate_evidence": {
+    "G1_METHOD": [
+      "tests/ausi/test_method_registry.py",
+      "tests/ausi/test_builtin_method_corpus.py",
+      "tests/ausi/test_method_coverage.py"
+    ],
+    "G2_PROVIDER": [
+      "tests/ausi/test_omphalos_identity_topology.py",
+      "tests/ausi/test_model_native_providers.py"
+    ],
+    "G3_REPLACEABILITY": [
+      "tests/ausi/test_provider_substitution_e2e.py",
+      "tests/ausi/test_dynamic_routing.py"
+    ],
+    "G4_PLANNER": [
+      "tests/ausi/test_autonomous_planner_e2e.py",
+      "tests/ausi/test_autonomous_planner_v1.py"
+    ],
+    "G5_POLICY": [
+      "tests/ausi/test_policy_runtime.py",
+      "tests/ausi/test_policy_runtime_downstream.py",
+      "tests/ausi/test_trusted_execution_runtime.py"
+    ],
+    "G6_EVIDENCE": [
+      "tests/ausi/test_evidence_promotion_gate.py",
+      "tests/ausi/test_evidence_provenance_closure_e2e.py"
+    ],
+    "G7_GAP_STOP": [
+      "tests/ausi/test_stopping_e2e.py",
+      "tests/ausi/test_search_control_runtime.py"
+    ],
+    "G8_RECEIPT": [
+      "tests/ausi/test_search_receipts.py",
+      "tests/ausi/test_experience_store_replay.py"
+    ],
+    "G9_EVALUATION": [
+      "tests/ausi/test_evaluation_suite_e2e.py",
+      "tests/ausi/test_evaluation_reproducibility.py"
+    ]
+  },
+  "historical_rc_artifacts": {
+    "release/omphalos-v1.0.0rc1-manifest.json": "cc5440800ae16ce93a2b2592d8343d77f9811e377287ed1e1c8eadc6bb824c2a",
+    "release/omphalos-v1.0.0rc1-public-api.json": "7e46a963e19100c1feac9525ee221b82b98f4dad78a85e25bc55d8a2665763a9"
+  },
+  "manifest_id": "omphalos-final-manifest:d42e8021d506ab3327badea80cd7cd1ca5f7d4143034dea6413f89690ee070b2",
+  "package_version": "1.0.0",
+  "public_api_artifact": {
+    "path": "release/omphalos-v1.0.0-public-api.json",
+    "sha256": "50ffd8041eac2e4331dbfe06c8b4e18d50db74ed8f607eb8ae7befa64a853a95"
+  },
+  "public_api_version": "1.0",
+  "rc_merge_sha": "c291567bcc4ec59bacdc90036819e0db264a2f23",
+  "rc_not_final_v1": false,
+  "reference_workflows": {
+    "academic_npl": [
+      "tests/ausi/test_crossref_trusted_receipt_e2e.py"
+    ],
+    "current_x_web": [
+      "tests/ausi/test_model_native_providers.py",
+      "tests/ausi/test_ai_daily_live_discovery_e2e.py"
+    ],
+    "general_web": [
+      "tests/ausi/test_ai_daily_live_discovery_e2e.py",
+      "tests/ausi/test_candidate_verification_batch.py"
+    ],
+    "patent_prior_art": [
+      "tests/ausi/test_software_prior_art_extension_workflow.py",
+      "tests/ausi/test_epo_ops_trusted_e2e.py"
+    ]
+  },
+  "required_release_docs": [
+    "docs/QUICKSTART.md",
+    "docs/release/API_STABILITY_AND_MIGRATION_v1.md",
+    "docs/release/SECURITY_AND_CREDENTIALS_v1.md",
+    "docs/release/REFERENCE_WORKFLOWS_v1.md",
+    "docs/release/RELEASE_v1.0.0.md"
+  ]
+}

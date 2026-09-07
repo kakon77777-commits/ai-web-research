@@ -1,0 +1,167 @@
+name: Omphalos v1.0 Final Release Gate
+
+on:
+  push:
+    branches:
+      - release/omphalos-v1.0-final-gate
+  pull_request:
+    branches:
+      - master
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  final-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      PYTHONDONTWRITEBYTECODE: "1"
+      SOURCE_DATE_EPOCH: "1788449640"
+      RC_MERGE_SHA: "c291567bcc4ec59bacdc90036819e0db264a2f23"
+    steps:
+      - name: Checkout exact final source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Record final source identity and diff boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rev-parse HEAD | tee /tmp/omphalos-final-head.txt
+          git status --short
+          git diff --name-only "$RC_MERGE_SHA" HEAD | tee /tmp/omphalos-final-diff-files.txt
+          if git diff --name-only "$RC_MERGE_SHA" HEAD | grep -E '^(src/ai_web_research/|src/crawler/)'; then
+            echo "Final gate forbids Runtime/crawler feature changes after RC merge." >&2
+            exit 1
+          fi
+          python --version
+
+      - name: Install development environment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip
+          python -m pip install build
+          python -m pip install -e '.[dev]'
+          python -m pip check
+
+      - name: Full repository tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q
+
+      - name: Compile Python sources and tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m compileall -q src tests
+
+      - name: Omphalos final release gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python scripts/omphalos_final_release_gate.py --json | tee /tmp/omphalos-final-gate.json
+
+      - name: Replay canonical G1-G9 behavior gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q \
+            tests/ausi/test_method_registry.py \
+            tests/ausi/test_builtin_method_corpus.py \
+            tests/ausi/test_method_coverage.py \
+            tests/ausi/test_omphalos_identity_topology.py \
+            tests/ausi/test_model_native_providers.py \
+            tests/ausi/test_provider_substitution_e2e.py \
+            tests/ausi/test_dynamic_routing.py \
+            tests/ausi/test_autonomous_planner_e2e.py \
+            tests/ausi/test_autonomous_planner_v1.py \
+            tests/ausi/test_policy_runtime.py \
+            tests/ausi/test_policy_runtime_downstream.py \
+            tests/ausi/test_trusted_execution_runtime.py \
+            tests/ausi/test_evidence_promotion_gate.py \
+            tests/ausi/test_evidence_provenance_closure_e2e.py \
+            tests/ausi/test_stopping_e2e.py \
+            tests/ausi/test_search_control_runtime.py \
+            tests/ausi/test_search_receipts.py \
+            tests/ausi/test_experience_store_replay.py \
+            tests/ausi/test_evaluation_suite_e2e.py \
+            tests/ausi/test_evaluation_reproducibility.py
+
+      - name: Replay four v1 reference workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q \
+            tests/ausi/test_ai_daily_live_discovery_e2e.py \
+            tests/ausi/test_candidate_verification_batch.py \
+            tests/ausi/test_model_native_providers.py \
+            tests/ausi/test_crossref_trusted_receipt_e2e.py \
+            tests/ausi/test_software_prior_art_extension_workflow.py \
+            tests/ausi/test_epo_ops_trusted_e2e.py
+
+      - name: Replay benchmark suite and exact artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest -q tests/ausi/test_evaluation_suite_e2e.py tests/ausi/test_reference_benchmark_suite.py
+
+      - name: Reproducible final build A
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dist build
+          python -m build
+          mkdir -p /tmp/omphalos-final-build-a
+          cp dist/* /tmp/omphalos-final-build-a/
+          sha256sum /tmp/omphalos-final-build-a/* | sed 's#/tmp/omphalos-final-build-a/##' | tee /tmp/omphalos-final-build-a.sha256
+
+      - name: Reproducible final build B and compare
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dist build
+          python -m build
+          mkdir -p /tmp/omphalos-final-build-b
+          cp dist/* /tmp/omphalos-final-build-b/
+          sha256sum /tmp/omphalos-final-build-b/* | sed 's#/tmp/omphalos-final-build-b/##' | tee /tmp/omphalos-final-build-b.sha256
+          diff -u /tmp/omphalos-final-build-a.sha256 /tmp/omphalos-final-build-b.sha256
+          cp /tmp/omphalos-final-build-a.sha256 /tmp/omphalos-final-dist-sha256.txt
+
+      - name: Clean final wheel install and outside-source smoke
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m venv /tmp/omphalos-v1-final-smoke
+          /tmp/omphalos-v1-final-smoke/bin/python -m pip install --upgrade pip
+          WHEEL="$(ls dist/*.whl | head -n 1)"
+          /tmp/omphalos-v1-final-smoke/bin/python -m pip install --no-deps "$WHEEL"
+          cd /tmp
+          /tmp/omphalos-v1-final-smoke/bin/python -c 'import ai_web_research, crawler, omphalos; assert omphalos.__version__ == "1.0.0"; assert omphalos.PUBLIC_API_VERSION == "1.0"; print(omphalos.__version__)'
+          /tmp/omphalos-v1-final-smoke/bin/omphalos version
+          /tmp/omphalos-v1-final-smoke/bin/omphalos doctor --json
+
+      - name: Upload final-gate package artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: omphalos-v1.0.0-final-gate-package
+          path: |
+            dist/*
+            release/omphalos-v1.0.0-public-api.json
+            release/omphalos-v1.0.0-final-manifest.json
+            /tmp/omphalos-final-head.txt
+            /tmp/omphalos-final-diff-files.txt
+            /tmp/omphalos-final-gate.json
+            /tmp/omphalos-final-dist-sha256.txt
+          if-no-files-found: ignore
